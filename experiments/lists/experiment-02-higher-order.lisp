@@ -174,12 +174,17 @@
            (equal (fold-sum (append l1 l2))
                   (+ (fold-sum l1) (fold-sum l2)))))
 
-; Theorem: fold-product of append
-; This theorem requires advanced arithmetic reasoning about associativity and
-; commutativity of multiplication. The proof succeeds using selective theory
-; control: disabling commutativity-of-* globally, then re-enabling it at the
-; specific subgoal where arithmetic reasoning is needed.
-; See experiment-02-higher-order-product.lisp for the complete proof.
+; Theorem: fold-product distributes over append
+; This proof requires only associativity of multiplication, not commutativity.
+; We disable commutativity-of-* to prevent the rewriter from normalizing terms
+; into incompatible canonical forms. With only associativity enabled, the proof
+; completes cleanly via induction.
+(defthm fold-product-append
+  (implies (and (nat-listp l1)
+                (nat-listp l2))
+           (equal (fold-product (append l1 l2))
+                  (* (fold-product l1) (fold-product l2))))
+  :hints (("Goal" :in-theory (disable commutativity-of-*))))
 
 ;;; ==========================================================================
 ;;; Interaction between Map and Fold
