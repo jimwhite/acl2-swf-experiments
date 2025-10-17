@@ -45,7 +45,7 @@ See [notes/lessons-learned.md](notes/lessons-learned.md) for detailed examples.
 
 ## Highlighted Experiments
 
-- **[fold-product-append](experiments/lists/experiment-02-higher-order-product.lisp)**: Advanced proof requiring selective theory control to manage arithmetic rewriting
+- **[fold-product-append](experiments/lists/experiment-02-higher-order.lisp)**: Proof demonstrating that disabling commutativity can simplify arithmetic reasoning (lines 177-187)
 - **[Natural numbers encoding](experiments/arithmetic/experiment-04-natural-numbers.lisp)**: Cons-based Peano naturals with correctness theorems
 - **[List reverse theorems](experiments/lists/experiment-01-list-basics.lisp)**: Working with ACL2's `revappend` representation
 

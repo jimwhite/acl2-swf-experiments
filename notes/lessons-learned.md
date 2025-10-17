@@ -6,19 +6,20 @@
 
 **Challenge**: Proving `fold-product (append l1 l2) = (* (fold-product l1) (fold-product l2))` failed because ACL2's rewriter normalized arithmetic terms too aggressively, preventing the necessary pattern matching.
 
-**Solution**: Use selective theory control with `:in-theory` hints:
+**Solution**: Use simple theory control with a Goal-level hint:
 
 ```lisp
-:hints (("Goal" :in-theory (e/d (fold-product) (commutativity-of-*)))
-        ("Subgoal *1/3''" :in-theory (enable commutativity-of-* associativity-of-*)))
+:hints (("Goal" :in-theory (disable commutativity-of-*)))
 ```
 
 **Key Insight**:
-- Disable `commutativity-of-*` globally during the main induction
-- Re-enable both `commutativity-of-*` and `associativity-of-*` at the specific subgoal where arithmetic reasoning is needed
-- This prevents over-normalization while still allowing arithmetic facts to apply at the right moment
+- This proof fundamentally requires **associativity**, not commutativity
+- The inductive step needs to regroup `(* a (* b c))` to `(* (* a b) c)`
+- Disabling `commutativity-of-*` prevents the rewriter from normalizing terms into incompatible canonical forms
+- With only associativity enabled, the proof completes cleanly (882 vs 2664 prover steps)
+- **Avoid subgoal hints when possible** - they are less maintainable than Goal-level hints
 
-**File**: `experiments/lists/experiment-02-higher-order-product.lisp`
+**File**: `experiments/lists/experiment-02-higher-order.lisp` (lines 177-187)
 
 ### Helper Lemmas for `revappend` (reverse theorems)
 

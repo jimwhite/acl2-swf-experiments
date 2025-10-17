@@ -59,8 +59,8 @@ Higher-order function theorems:
   - Interaction between map and fold
 
 **Location**: `experiments/lists/experiment-02-higher-order.lisp`
-**Key techniques learned**: Helper lemmas about `revappend`, concrete types instead of polymorphism
-**Note**: `fold-product-append` theorem commented out - needs complex arithmetic lemmas
+**Key techniques learned**: Helper lemmas about `revappend`, concrete types instead of polymorphism, selective theory control for arithmetic proofs
+**Note**: `fold-product-append` theorem proved using Goal-level hint to disable commutativity
 
 ### 📋 Chapter 7: Logic
 
