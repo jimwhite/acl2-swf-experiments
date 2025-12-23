@@ -461,7 +461,7 @@
                         ; Normal action: update state and continue
                         (let ((new-state (update-state-after-action state tool-name 
                                                                      params obs)))
-                          (react-loop new-state llm-function)))))))))
+                          (react-loop new-state llm-function))))))))))
 
 ; ============================================================================
 ; SECTION 10: AGENT INITIALIZATION & HELPER FUNCTIONS

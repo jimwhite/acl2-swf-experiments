@@ -8,8 +8,8 @@ CONVERTER := utils/lisp_to_ipynb.py
 # Path to ACL2 certification tool
 CERT := cert.pl
 
-# Find all .lisp files in experiments directory (excluding .ipynb_checkpoints)
-LISP_FILES := $(shell find experiments -name "*.lisp" -type f ! -path "*/.ipynb_checkpoints/*")
+# Find all .lisp files (excluding .ipynb_checkpoints)
+LISP_FILES := $(shell find . -name "*.lisp" -type f ! -path "*/.ipynb_checkpoints/*")
 
 # Generate corresponding .ipynb targets
 NOTEBOOKS := $(LISP_FILES:.lisp=.ipynb)
