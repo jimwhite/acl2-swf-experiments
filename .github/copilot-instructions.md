@@ -2,7 +2,9 @@
 
 ## Project Overview
 
-This repository contains ACL2 theorem prover experiments adapting proofs from **Software Foundations** (Coq) to ACL2. Focus is on fundamental theorems about arithmetic, lists, and logic.
+This repository contains ACL2 theorem prover experiments in two tracks:
+1. **Software Foundations** - Adapting proofs from Coq to ACL2 (arithmetic, lists, logic)
+2. **Verified Agents** - Formally verified AI agents using ACL2 + Z3 + LangGraph
 
 ## Architecture
 
@@ -11,6 +13,7 @@ experiments/        # ACL2 proof files organized by topic
   arithmetic/       # Number theorems, Peano encoding
   lists/            # List operations, higher-order functions
   logic/            # (planned) Logical connectives
+  agents/           # Verified AI agents with Z3 enforcement
 utils/common.lisp   # Shared definitions (add reusable lemmas here)
 notes/              # Learning docs, progression tracking
 ```
@@ -89,6 +92,41 @@ See [experiment-01-list-basics.lisp](experiments/lists/experiment-01-list-basics
 4. Add local helper lemmas as stepping stones
 5. Run `make experiments/path/to/file.cert` to verify
 6. Document insights in [notes/lessons-learned.md](notes/lessons-learned.md)
+
+## Verified Agents Track
+
+The `experiments/agents/` directory contains verified AI agents:
+
+### Architecture Pattern
+1. **ACL2 specification** (`.lisp`) - Define state machine, constraints, prove properties
+2. **Python notebook** (`.ipynb`) - Runtime implementation with Z3 enforcement
+
+### Permission Model (Orthogonal)
+- **File access**: `*access-none*` (0), `*access-read*` (1), `*access-read-write*` (2)
+- **Execute**: Separate boolean - tools that run code need execute permission
+
+### Key Functions
+```lisp
+(tool-permitted-p required-access requires-execute granted-access execute-allowed)
+(can-invoke-tool-p st tool)      ; permission AND budget check
+(must-respond-p st)              ; budget exhausted or done
+(should-continue-p st)           ; has budget AND satisfaction < threshold
+```
+
+### Guard Verification
+Always verify guards for type safety - this IS the point of verified agents:
+```lisp
+;; Define return-type theorems for accessors
+(defthm agent-iteration-type
+  (implies (agent-state-p st)
+           (natp (agent-iteration st)))
+  :rule-classes :forward-chaining)
+```
+
+### LM Studio Integration
+Python notebooks connect to LM Studio on host: `http://host.docker.internal:1234/v1`
+
+See [experiment-01-react-verified.lisp](experiments/agents/experiment-01-react-verified.lisp) for ACL2 spec.
 
 ## Resources
 
