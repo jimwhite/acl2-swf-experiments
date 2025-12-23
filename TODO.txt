@@ -1,0 +1,5 @@
+TODO:  Need to clean certificates if the SBCL version has changed.  We can test that by trying to load one.
+
+
+Actually that's not really a problem.  Only happened because I reused a workspace.
+Hmmm, well the check cert should look at validity not just timestamp.
