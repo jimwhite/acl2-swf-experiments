@@ -24,3 +24,4 @@
 /tmp/
 Makefile-tmp
 __pycache__/
+.ipynb_checkpoints/
