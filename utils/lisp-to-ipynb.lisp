@@ -56,7 +56,7 @@
           (write-string indent-str stream)
           (write-char #\] stream)))))
 
-;;; Source file parsing - character-based approach
+;;; Source file parsing - reader-based approach
 
 (defstruct source-element
   "An element from the source file."
@@ -65,73 +65,247 @@
   (start-line 0 :type integer)
   (end-line 0 :type integer))
 
-(defun read-file-lines (pathname)
-  "Read file as a list of lines (without newlines)."
-  (with-open-file (stream pathname :direction :input)
-    (loop for line = (read-line stream nil nil)
-          while line
-          collect line)))
+(defun read-file-content (pathname)
+  "Read entire file as a string."
+  (with-open-file (stream pathname :direction :input
+                          :external-format :utf-8)
+    (let* ((len (file-length stream))
+           (content (make-string len)))
+      (read-sequence content stream)
+      ;; Handle potential shorter read due to encoding
+      (string-right-trim '(#\Null) content))))
 
-(defun blank-line-p (line)
-  "Check if a line is blank (empty or only whitespace)."
-  (every (lambda (c) (member c '(#\Space #\Tab))) line))
+(defun count-newlines-in-range (content start end)
+  "Count newlines in content from start to end."
+  (count #\Newline content :start start :end (min end (length content))))
 
-(defun comment-line-p (line)
-  "Check if a line is a comment (starts with ; after optional whitespace)."
-  (let ((trimmed (string-left-trim '(#\Space #\Tab) line)))
-    (and (plusp (length trimmed))
-         (char= (char trimmed 0) #\;))))
+(defun skip-whitespace (content pos)
+  "Skip whitespace characters, return new position."
+  (let ((len (length content)))
+    (loop while (and (< pos len)
+                     (member (char content pos) '(#\Space #\Tab #\Newline #\Return)))
+          do (incf pos))
+    pos))
 
-(defun group-lines-by-blanks (lines)
-  "Group consecutive non-blank lines together.
-   Returns list of (line-list start-line-num) pairs."
-  (let ((groups '())
-        (current-group '())
-        (current-start 1)
-        (line-num 0))
-    (dolist (line lines)
-      (incf line-num)
-      (if (blank-line-p line)
-          ;; Blank line: close current group if any
-          (when current-group
-            (push (list (nreverse current-group) current-start) groups)
-            (setf current-group '()))
-          ;; Non-blank line: add to current group
-          (progn
-            (when (null current-group)
-              (setf current-start line-num))
-            (push line current-group))))
-    ;; Don't forget the last group
-    (when current-group
-      (push (list (nreverse current-group) current-start) groups))
-    (nreverse groups)))
+(defun at-comment-p (content pos)
+  "Check if position is at start of a comment."
+  (and (< pos (length content))
+       (char= (char content pos) #\;)))
 
-(defun all-comments-p (lines)
-  "Check if all lines in a list are comments."
-  (every #'comment-line-p lines))
+(defun scan-comment-block (content pos)
+  "Scan a block of contiguous comment lines starting at pos.
+   Returns (end-pos . text) where text includes all comment lines."
+  (let ((len (length content))
+        (start pos)
+        (end pos))
+    ;; Scan all contiguous comment lines
+    (loop while (< end len) do
+      ;; Skip to start of content on this line (spaces/tabs only)
+      (let ((line-content-start end))
+        (loop while (and (< line-content-start len)
+                         (member (char content line-content-start) '(#\Space #\Tab)))
+              do (incf line-content-start))
+        ;; Check if this line starts with a comment
+        (if (and (< line-content-start len)
+                 (char= (char content line-content-start) #\;))
+            ;; It's a comment line, scan to end of line
+            (progn
+              (setf end line-content-start)
+              (loop while (and (< end len)
+                               (char/= (char content end) #\Newline))
+                    do (incf end))
+              ;; Include the newline if present
+              (when (and (< end len) (char= (char content end) #\Newline))
+                (incf end)))
+            ;; Not a comment line, we're done
+            (return))))
+    (cons end (subseq content start end))))
 
-(defun classify-group (lines)
-  "Classify a group as :comment or :code based on its content."
-  (if (all-comments-p lines)
-      :comment
-      :code))
+(defun scan-to-next-content (content pos)
+  "Skip blank lines only (not comment lines). Returns new position."
+  (let ((len (length content)))
+    (loop while (< pos len) do
+      (let ((line-start pos))
+        ;; Check what's on this line
+        (loop while (and (< pos len)
+                         (member (char content pos) '(#\Space #\Tab)))
+              do (incf pos))
+        (cond
+          ;; End of file
+          ((>= pos len) (return pos))
+          ;; Newline = blank line, continue
+          ((char= (char content pos) #\Newline)
+           (incf pos))
+          ;; Content found (comment or code)
+          (t (return line-start)))))
+    pos))
+
+(defun read-form-from-string (content start)
+  "Read a Lisp form from content starting at position start.
+   Returns (form . end-position) or nil if no form."
+  (let ((*read-eval* nil)
+        (*package* (find-package :cl-user)))
+    (handler-case
+        (multiple-value-bind (form end-pos)
+            (read-from-string content t nil :start start)
+          (declare (ignore form))
+          end-pos)
+      (error () nil))))
+
+(defun find-form-end (content start)
+  "Find where a form ends by using the reader.
+   Returns end position in content."
+  (read-form-from-string content start))
+
+(defun has-blank-line-before (content pos)
+  "Check if there's a blank line between last newline and pos.
+   Returns t if there's at least one blank line."
+  (let ((len (length content)))
+    ;; Skip any leading whitespace on current line
+    (let ((check-pos pos))
+      (loop while (and (< check-pos len)
+                       (member (char content check-pos) '(#\Space #\Tab)))
+            do (incf check-pos))
+      ;; Check if we're at newline (meaning blank line) or EOF
+      (or (>= check-pos len)
+          (char= (char content check-pos) #\Newline)))))
+
+(defun scan-code-block (content pos)
+  "Scan a code block (possibly with leading comments) starting at pos.
+   A code block ends at a blank line (even within multiline strings are kept intact).
+   Returns (end-pos . text)."
+  (let ((len (length content))
+        (start pos)
+        (end pos))
+    ;; Scan until we hit a blank line
+    (loop while (< end len) do
+      (let ((line-start end))
+        ;; Skip leading whitespace on line
+        (loop while (and (< end len)
+                         (member (char content end) '(#\Space #\Tab)))
+              do (incf end))
+        (cond
+          ;; End of file
+          ((>= end len)
+           (return))
+          ;; Blank line - end of block
+          ((char= (char content end) #\Newline)
+           ;; Rewind to line-start (don't include trailing blank lines)
+           (setf end line-start)
+           (return))
+          ;; Comment line - include it, then check for blank line
+          ((char= (char content end) #\;)
+           (loop while (and (< end len)
+                            (char/= (char content end) #\Newline))
+                 do (incf end))
+           (when (and (< end len) (char= (char content end) #\Newline))
+             (incf end)))
+          ;; Code form - use the reader
+          (t
+           (let ((form-end (find-form-end content end)))
+             (if form-end
+                 (progn
+                   (setf end form-end)
+                   ;; Now skip trailing whitespace/newlines to find next line
+                   (loop while (and (< end len)
+                                    (member (char content end) '(#\Space #\Tab)))
+                         do (incf end))
+                   ;; Include the newline
+                   (when (and (< end len) (char= (char content end) #\Newline))
+                     (incf end))
+                   ;; Check if next line is blank
+                   (when (has-blank-line-before content end)
+                     (return)))
+                 ;; Reader failed, skip to end of line
+                 (progn
+                   (loop while (and (< end len)
+                                    (char/= (char content end) #\Newline))
+                         do (incf end))
+                   (when (and (< end len) (char= (char content end) #\Newline))
+                     (incf end))
+                   (return))))))))
+    ;; Trim trailing whitespace from the extracted text
+    (let ((text (string-right-trim '(#\Space #\Tab #\Newline #\Return)
+                                   (subseq content start end))))
+      (cons end text))))
 
 (defun parse-source-file (pathname)
   "Parse a Lisp source file into a list of source-elements.
-   Groups lines by blank line separators, then classifies each group."
-  (let* ((lines (read-file-lines pathname))
-         (groups (group-lines-by-blanks lines)))
-    (mapcar (lambda (group-info)
-              (let* ((group-lines (first group-info))
-                     (start-line (second group-info))
-                     (group-type (classify-group group-lines))
-                     (text (format nil "~{~A~^~%~}" group-lines)))
-                (make-source-element
-                 :type group-type
-                 :text text
-                 :start-line start-line
-                 :end-line (+ start-line (1- (length group-lines))))))
-            groups)))
+   Uses the CL reader to properly handle forms with multiline strings."
+  (let* ((content (read-file-content pathname))
+         (len (length content))
+         (pos 0)
+         (current-line 1)
+         (elements '()))
+    (loop while (< pos len) do
+      ;; Skip blank lines
+      (let ((new-pos (scan-to-next-content content pos)))
+        (incf current-line (count-newlines-in-range content pos new-pos))
+        (setf pos new-pos))
+      
+      (when (< pos len)
+        (let ((start-line current-line))
+          (cond
+            ;; Comment block - only if it's purely comments until a blank line
+            ((at-comment-p content pos)
+             ;; Peek ahead to see if there's code before the next blank line
+             (let ((peek-pos pos)
+                   (found-code nil))
+               (loop while (< peek-pos len) do
+                 ;; Skip whitespace on line
+                 (loop while (and (< peek-pos len)
+                                  (member (char content peek-pos) '(#\Space #\Tab)))
+                       do (incf peek-pos))
+                 (cond
+                   ((>= peek-pos len) (return))
+                   ((char= (char content peek-pos) #\Newline)
+                    ;; Blank line - end of paragraph
+                    (return))
+                   ((char= (char content peek-pos) #\;)
+                    ;; Comment, skip to end of line
+                    (loop while (and (< peek-pos len)
+                                     (char/= (char content peek-pos) #\Newline))
+                          do (incf peek-pos))
+                    (when (< peek-pos len) (incf peek-pos)))
+                   (t
+                    ;; Found code
+                    (setf found-code t)
+                    (return))))
+               
+               (if found-code
+                   ;; Treat as code block (comments + code together)
+                   (let ((result (scan-code-block content pos)))
+                     (incf current-line (count-newlines-in-range content pos (car result)))
+                     (setf pos (car result))
+                     (push (make-source-element
+                            :type :code
+                            :text (cdr result)
+                            :start-line start-line
+                            :end-line current-line)
+                           elements))
+                   ;; Pure comment block
+                   (let ((result (scan-comment-block content pos)))
+                     (incf current-line (count-newlines-in-range content pos (car result)))
+                     (setf pos (car result))
+                     (push (make-source-element
+                            :type :comment
+                            :text (cdr result)
+                            :start-line start-line
+                            :end-line current-line)
+                           elements)))))
+            
+            ;; Code block
+            (t
+             (let ((result (scan-code-block content pos)))
+               (incf current-line (count-newlines-in-range content pos (car result)))
+               (setf pos (car result))
+               (push (make-source-element
+                      :type :code
+                      :text (cdr result)
+                      :start-line start-line
+                      :end-line current-line)
+                     elements)))))))
+    (nreverse elements)))
 
 ;;; Notebook generation
 
