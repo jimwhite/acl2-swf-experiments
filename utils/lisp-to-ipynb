@@ -1,0 +1,20 @@
+#!/bin/bash
+# lisp-to-ipynb - Convert Lisp source files to Jupyter notebooks
+# Usage: lisp-to-ipynb [--acl2] input.lisp [output.ipynb]
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+LISP_SCRIPT="$SCRIPT_DIR/lisp-to-ipynb.lisp"
+
+# Build args string for Lisp
+ARGS=""
+for arg in "$@"; do
+    if [ -z "$ARGS" ]; then
+        ARGS="\"$arg\""
+    else
+        ARGS="$ARGS \"$arg\""
+    fi
+done
+
+exec sbcl --noinform --non-interactive \
+    --load "$LISP_SCRIPT" \
+    --eval "(sb-ext:exit :code (lisp-to-ipynb::main (list $ARGS)))"

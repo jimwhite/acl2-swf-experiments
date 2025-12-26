@@ -1,6 +1,6 @@
 # Lisp to Jupyter Notebook Converter
 
-Scripts to convert ACL2 `.lisp` files into Jupyter `.ipynb` notebooks.
+Scripts to convert ACL2/Common Lisp `.lisp` files into Jupyter `.ipynb` notebooks.
 
 ## Usage
 
@@ -40,9 +40,36 @@ The Makefile automatically:
 - Tracks dependencies on the converter script and included books
 - Skips files in `.ipynb_checkpoints/` directories
 
-### Direct Python Script Usage
+### Direct SBCL Script Usage (Recommended)
 
-For more control, you can use the Python script directly:
+The SBCL-based converter uses the Common Lisp reader to properly parse source files,
+correctly identifying standalone comment blocks vs. code with associated comments.
+
+```bash
+# Convert an ACL2 file
+./utils/lisp-to-ipynb --acl2 input.lisp [output.ipynb]
+
+# Convert a Common Lisp file (default)
+./utils/lisp-to-ipynb input.lisp [output.ipynb]
+```
+
+Cell boundary rules:
+- Blank lines separate cells (groups of content)
+- A group that contains ONLY comments becomes a markdown cell
+- A group that contains ANY code becomes a code cell (comments included)
+
+Examples:
+```bash
+# ACL2 mode - sets kernel to ACL2 and language to acl2
+./utils/lisp-to-ipynb --acl2 experiments/agents/experiment-01-react-verified.lisp
+
+# Common Lisp mode (default) - sets kernel to Common Lisp
+./utils/lisp-to-ipynb utils/lisp-to-ipynb.lisp
+```
+
+### Legacy Python Script Usage
+
+For simpler files, the Python script can also be used:
 
 #### Convert a single file
 
