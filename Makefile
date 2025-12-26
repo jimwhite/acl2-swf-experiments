@@ -3,7 +3,7 @@
 # Only rebuilds/recertifies when source files are newer
 
 # Path to the converter script
-CONVERTER := utils/lisp_to_ipynb.py
+CONVERTER := utils/lisp_to_ipynb --acl2
 
 # Path to ACL2 certification tool
 CERT := cert.pl
@@ -17,6 +17,11 @@ NOTEBOOKS := $(LISP_FILES:.lisp=.ipynb)
 # Generate corresponding .cert targets
 CERTS := $(LISP_FILES:.lisp=.cert)
 
+# Pattern rule: how to build a .ipynb from a .lisp
+%.ipynb: %.lisp $(CONVERTER)
+	@echo "Converting $< -> $@"
+	$(CONVERTER) $<
+
 # Default target: build all notebooks
 .PHONY: all
 all: $(NOTEBOOKS)
@@ -24,11 +29,6 @@ all: $(NOTEBOOKS)
 # Certify all ACL2 books
 .PHONY: certify
 certify: $(CERTS)
-
-# Pattern rule: how to build a .ipynb from a .lisp
-%.ipynb: %.lisp $(CONVERTER)
-	@echo "Converting $< -> $@"
-	@python3 $(CONVERTER) $<
 
 # Pattern rule: how to certify a .lisp book
 %.cert: %.lisp

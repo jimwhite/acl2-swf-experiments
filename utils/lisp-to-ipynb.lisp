@@ -133,44 +133,14 @@
                  :end-line (+ start-line (1- (length group-lines))))))
             groups)))
 
-;;; Convert comments to markdown format
-
-(defun strip-comment-prefix (line)
-  "Remove leading semicolons and one space from a comment line."
-  (let ((start 0)
-        (len (length line)))
-    ;; Skip leading whitespace
-    (loop while (and (< start len) 
-                     (member (char line start) '(#\Space #\Tab)))
-          do (incf start))
-    ;; Skip semicolons
-    (loop while (and (< start len) (char= (char line start) #\;))
-          do (incf start))
-    ;; Skip one space after semicolons if present
-    (when (and (< start len) (char= (char line start) #\Space))
-      (incf start))
-    (subseq line start)))
-
-(defun comment-to-markdown (comment-text)
-  "Convert comment text to markdown by stripping ; prefixes."
-  (with-output-to-string (out)
-    (with-input-from-string (in comment-text)
-      (loop for line = (read-line in nil nil)
-            for first = t then nil
-            while line do
-        (unless first (terpri out))
-        (write-string (strip-comment-prefix line) out)))))
-
 ;;; Notebook generation
 
 (defun make-notebook-cell (source-elem kernel-type)
   "Create a notebook cell from a source element.
    kernel-type is :sbcl or :acl2"
   (let* ((is-comment (eq (source-element-type source-elem) :comment))
-         (cell-type (if is-comment "markdown" "code"))
-         (text (if is-comment
-                   (comment-to-markdown (source-element-text source-elem))
-                   (source-element-text source-elem)))
+         (cell-type (if is-comment "raw" "code"))
+         (text (source-element-text source-elem))
          (language (if (eq kernel-type :acl2) "acl2" "common-lisp")))
     (list :cell-type cell-type
           :language language
