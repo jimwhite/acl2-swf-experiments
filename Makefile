@@ -3,7 +3,8 @@
 # Only rebuilds/recertifies when source files are newer
 
 # Path to the converter script
-CONVERTER := utils/lisp_to_ipynb --acl2
+CONVERTER_SCRIPT := utils/lisp-to-ipynb.lisp
+CONVERTER := sbcl --script $(CONVERTER_SCRIPT) --acl2
 
 # Path to ACL2 certification tool
 CERT := cert.pl
@@ -18,7 +19,7 @@ NOTEBOOKS := $(LISP_FILES:.lisp=.ipynb)
 CERTS := $(LISP_FILES:.lisp=.cert)
 
 # Pattern rule: how to build a .ipynb from a .lisp
-%.ipynb: %.lisp $(CONVERTER)
+%.ipynb: %.lisp $(CONVERTER_SCRIPT)
 	@echo "Converting $< -> $@"
 	$(CONVERTER) $<
 
