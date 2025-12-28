@@ -1,4 +1,5 @@
 ; cert.acl2 for test-simple
 (include-book "centaur/fty/top" :dir :system)
+(include-book "projects/smtlink/top" :dir :system :ttags :all)
 
-; cert-flags: ? t
+; cert-flags: ? t :ttags :all

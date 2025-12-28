@@ -7,6 +7,9 @@
 ;
 ; The key insight: SMTLink translates ACL2 constraints to Z3 Python code.
 ; We capture that code and use it at runtime in LangGraph.
+;
+; IMPORTANT: SMTLink maps integerp to Z3 Int, but does NOT support integerp
+; as a FUNCTION (like in ifix). We must avoid ifix and similar.
 
 (in-package "ACL2")
 
@@ -20,8 +23,8 @@
 ; Enable tshell for running Z3
 (value-triple (tshell-ensure))
 
-; Note: We don't use add-default-hints to avoid package issues during certification.
-; Instead, we'll rely on the :smtlink hint in each theorem.
+; Install SMTLink computed hint for proper Z3 invocation
+(add-default-hints '((SMT::SMT-computed-hint clause)))
 
 ;;; ==========================================================================
 ;;; Part 1: FTY Types for Agent State and Tool Spec
@@ -29,6 +32,8 @@
 
 ;; Agent state as FTY product type
 ;; Using integerp for SMTLink compatibility (maps to Z3 Int)
+;; Note: integerp fields work with SMTLink because it treats them as TYPE
+;; declarations. We just need to avoid calling integerp as a function.
 (fty::defprod agent-state
   ((iteration      integerp :default 0)
    (max-iterations integerp :default 10)
@@ -68,10 +73,11 @@
 ;;; ==========================================================================
 
 ;; Check if granted access is sufficient
-;; Note: We access FTY fields directly - they're already integers
+;; The FTY accessors already return integers, so we compare directly.
+;; NO ifix needed - the FTY type guarantees integerp.
 (define access-sufficient-p ((required integerp) (granted integerp))
   :returns (ok booleanp)
-  (<= (ifix required) (ifix granted)))
+  (<= required granted))
 
 ;; Full permission check: file access + execute
 (define tool-permitted-p ((tool tool-spec-p) (st agent-state-p))
@@ -177,8 +183,8 @@
 ;;; Part 7: SMTLink Theorems - Z3 Proves These  
 ;;; ==========================================================================
 ;;;
-;;; These theorems use SMTLink to generate Z3 Python code.
-;;; We configure SMTLink to preserve the generated file.
+;;; These theorems use SMTLink to prove properties via Z3, generating Python code
+;;; that can be adapted for runtime enforcement in a LangGraph agent.
 ;;;
 ;;; Key: SMTLink treats FTY recognizers (agent-state-p, tool-spec-p) as type
 ;;; declarations, so we don't add explicit integerp hypotheses.
@@ -269,11 +275,18 @@
 ;;; End of Experiment 02
 ;;; ==========================================================================
 ;;;
-;;; After certification, check /tmp/py_file/ for generated Z3 Python files:
-;;; - react_permission_safety.py
-;;; - react_budget_bounds.py  
-;;; - react_termination.py
-;;; - react_partition.py
-;;;
+;;; After certification, check /tmp/py_file/ for generated Z3 Python files.
 ;;; These files contain the Z3 constraints that can be adapted for runtime
 ;;; enforcement in the LangGraph agent.
+;;;
+;;; KEY LESSONS LEARNED:
+;;; 1. SMTLink supports integerp/booleanp as TYPE declarations in FTY defprod
+;;; 2. SMTLink does NOT support integerp as a FUNCTION (like in ifix)
+;;; 3. Use direct comparisons (<= x y) instead of (ifix x) for SMTLink
+;;; 4. The (:fty (type1 type2 ...)) hint tells SMTLink which FTY types to use
+;;; 5. Generated Z3 Python code can be found in /tmp/py_file/
+;;;
+;;; FUTURE WORK:
+;;; - Create Python runtime that extracts and uses these Z3 constraints
+;;; - Add more invariants about state transitions  
+;;; - Consider using FTY deftagsum for more precise access-level types

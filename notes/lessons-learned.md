@@ -59,3 +59,51 @@ When encoding mathematical structures (like Peano naturals), prove correctness t
 ```
 
 **File**: `experiments/arithmetic/experiment-04-natural-numbers-correctness.lisp`
+## SMTLink with FTY Types
+
+### Understanding SMTLink Type System
+
+**Challenge**: SMTLink threw `Not a basic SMT function: INTEGERP` when trying to prove theorems about FTY defprod types.
+
+**Root Cause**: SMTLink distinguishes between:
+1. **Type declarations** - `integerp`, `booleanp`, `rationalp` as field types in `defprod`
+2. **SMT functions** - The limited set of functions SMTLink can translate to Z3
+
+SMTLink supports `integerp` only as a TYPE declaration (mapping to Z3's `IntSort()`), NOT as a function.
+
+**The Problem**: FTY's `ifix` function expands to `(if (integerp x) x 0)`, introducing `integerp` as a function call.
+
+**Solution**: Avoid using `ifix` in functions that will be proven via SMTLink. Instead, rely on FTY's type guarantees:
+
+```lisp
+;; BAD - introduces integerp as function:
+(define access-sufficient-p ((required integerp) (granted integerp))
+  (<= (ifix required) (ifix granted)))
+
+;; GOOD - FTY guarantees integerp:
+(define access-sufficient-p ((required integerp) (granted integerp))
+  (<= required granted))
+```
+
+**The FTY Hint**: Always specify which FTY types to use:
+
+```lisp
+(defthm my-theorem
+  (implies (and (my-prod-p x) ...)
+           ...)
+  :hints (("Goal" :smtlink (:fty (my-prod)))))
+```
+
+**Generated Z3 Code**: SMTLink generates Python/Z3 code in `/tmp/py_file/`. This code can be adapted for runtime constraint enforcement.
+
+**File**: `experiments/agents/experiment-02-smtlink-react.lisp`
+
+### SMTLink Supported Functions
+
+Only these ACL2 functions translate directly to Z3:
+- Arithmetic: `binary-+`, `binary-*`, `unary-/`, `unary--`
+- Comparison: `<`, `equal`
+- Logic: `if`, `not`, `implies`
+- Types (as declarations only): `integerp`, `booleanp`, `rationalp`, `symbolp`
+
+Notably ABSENT: `>=`, `>`, `<=`, `max`, `min` (though these work via expansion)
