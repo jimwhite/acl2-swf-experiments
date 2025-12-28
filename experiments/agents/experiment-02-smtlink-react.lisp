@@ -20,8 +20,8 @@
 ; Enable tshell for running Z3
 (value-triple (tshell-ensure))
 
-; Add SMTLink computed hints
-(add-default-hints '((SMT::SMT-computed-hint clause)))
+; Note: We don't use add-default-hints to avoid package issues during certification.
+; Instead, we'll rely on the :smtlink hint in each theorem.
 
 ;;; ==========================================================================
 ;;; Part 1: FTY Types for Agent State and Tool Spec
@@ -71,7 +71,7 @@
 ;; Note: We access FTY fields directly - they're already integers
 (define access-sufficient-p ((required integerp) (granted integerp))
   :returns (ok booleanp)
-  (<= required granted))
+  (<= (ifix required) (ifix granted)))
 
 ;; Full permission check: file access + execute
 (define tool-permitted-p ((tool tool-spec-p) (st agent-state-p))
@@ -192,9 +192,7 @@
            (tool-permitted-p tool st))
   :hints (("Goal"
            :smtlink
-           (:fty (tool-spec agent-state)
-            :smt-fname "react_permission_safety.py"
-            :rm-file nil))))
+           (:fty (tool-spec agent-state)))))
 
 ;; Theorem 2: Budget bounds - deduction keeps budgets non-negative
 ;; Using >= 0 constraints as these are within the FTY-understood types
@@ -209,9 +207,7 @@
                 (>= (agent-state->token-budget (deduct-tool-cost tool st)) 0)))
   :hints (("Goal"
            :smtlink
-           (:fty (tool-spec agent-state)
-            :smt-fname "react_budget_bounds.py"
-            :rm-file nil))))
+           (:fty (tool-spec agent-state)))))
 
 ;; Theorem 3: Iteration bound guarantees termination
 (defthm termination-bound-smt
@@ -220,9 +216,7 @@
            (must-respond-p st))
   :hints (("Goal"
            :smtlink
-           (:fty (agent-state)
-            :smt-fname "react_termination.py"
-            :rm-file nil))))
+           (:fty (agent-state)))))
 
 ;; Theorem 4: Continue/respond are mutually exclusive and exhaustive
 ;; (when satisfaction is properly bounded)
@@ -235,9 +229,7 @@
                (>= (agent-state->satisfaction st) *satisfaction-threshold*)))
   :hints (("Goal"
            :smtlink
-           (:fty (agent-state)
-            :smt-fname "react_partition.py"
-            :rm-file nil))))
+           (:fty (agent-state)))))
 
 ;;; ==========================================================================
 ;;; Part 8: Pure ACL2 Theorems (no SMTLink)

@@ -13,5 +13,21 @@
     "containerEnv": {
         "JUPYTER_PORT": "8888",
         "RESTARTABLE": "yes"
+    },
+"customizations": {
+    "vscode": {
+      "mcp": {
+        "servers": {
+            "acl2-mcp": {
+            "command": "/workspaces/acl2-swf-experiments/.venv/bin/acl2-mcp",
+            "args": [],
+            "env": {
+                "ACL2_HOME": "/home/acl2",
+                "ACL2_SYSTEM_BOOKS": "/home/acl2/books",
+                "ACL2": "/opt/acl2/bin/saved_acl2"
+            }
+        }
+      }
     }
+  }
 }

@@ -6,5 +6,8 @@
 		{
 			"path": "../../home/acl2/books/projects/smtlink"
 		}
-	]
+	],
+	"settings": {
+		"chat.mcp.serverSampling": {}
+	}
 }

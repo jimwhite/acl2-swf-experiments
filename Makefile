@@ -109,6 +109,11 @@ check-cert:
 		echo "  All books are certified!"; \
 	fi
 
+.PHONY: acl2-mcp
+acl2-mcp:
+	pip install git+https://github.com/septract/acl2-mcp.git
+	@echo "Use 'acl2-mcp' to run ACL2 MCP service."
+
 # Help target
 .PHONY: help
 help:

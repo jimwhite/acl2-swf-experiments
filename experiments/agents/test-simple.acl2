@@ -1,0 +1,4 @@
+; cert.acl2 for test-simple
+(include-book "centaur/fty/top" :dir :system)
+
+; cert-flags: ? t

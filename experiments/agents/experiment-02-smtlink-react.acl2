@@ -1,6 +1,7 @@
 ; cert.acl2 for experiment-02-smtlink-react
 ; SMTLink requires ttags for quicklisp, tshell, and SMT-trusted-cp
 
-(include-book "projects/smtlink/portcullis" :dir :system)
+(include-book "centaur/fty/top" :dir :system)
+(include-book "projects/smtlink/top" :dir :system :ttags :all)
 
 ; cert-flags: ? t :ttags :all :skip-proofs-okp t
