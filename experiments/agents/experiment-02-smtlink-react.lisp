@@ -76,12 +76,12 @@
 ;; The FTY accessors already return integers, so we compare directly.
 ;; NO ifix needed - the FTY type guarantees integerp.
 (define access-sufficient-p ((required integerp) (granted integerp))
-  :returns (ok booleanp)
+  :returns (ok booleanp :rule-classes :type-prescription)
   (<= required granted))
 
 ;; Full permission check: file access + execute
 (define tool-permitted-p ((tool tool-spec-p) (st agent-state-p))
-  :returns (ok booleanp)
+  :returns (ok booleanp :rule-classes :type-prescription)
   (b* ((required-access (tool-spec->required-access tool))
        (requires-exec (tool-spec->requires-exec tool))
        (granted-access (agent-state->file-access st))
@@ -95,7 +95,7 @@
 
 ;; Check if budget is sufficient for a tool call
 (define tool-budget-sufficient-p ((tool tool-spec-p) (st agent-state-p))
-  :returns (ok booleanp)
+  :returns (ok booleanp :rule-classes :type-prescription)
   (b* ((tool-cost (tool-spec->base-cost tool))
        (tool-time (tool-spec->time-estimate tool))
        (tool-tokens (tool-spec->token-estimate tool))
@@ -108,7 +108,7 @@
 
 ;; Can we invoke this tool?
 (define can-invoke-tool-p ((tool tool-spec-p) (st agent-state-p))
-  :returns (ok booleanp)
+  :returns (ok booleanp :rule-classes :type-prescription)
   (and (tool-permitted-p tool st)
        (tool-budget-sufficient-p tool st)))
 
@@ -118,7 +118,7 @@
 
 ;; Must respond: out of budget or done
 (define must-respond-p ((st agent-state-p))
-  :returns (must booleanp)
+  :returns (must booleanp :rule-classes :type-prescription)
   (b* ((done (agent-state->done st))
        (iter (agent-state->iteration st))
        (max-iter (agent-state->max-iterations st))
@@ -133,7 +133,7 @@
 
 ;; Should continue: has budget and below satisfaction threshold
 (define should-continue-p ((st agent-state-p))
-  :returns (cont booleanp)
+  :returns (cont booleanp :rule-classes :type-prescription)
   (b* ((sat (agent-state->satisfaction st)))
     (and (not (must-respond-p st))
          (< sat *satisfaction-threshold*))))

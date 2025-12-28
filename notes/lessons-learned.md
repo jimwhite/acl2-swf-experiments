@@ -107,3 +107,36 @@ Only these ACL2 functions translate directly to Z3:
 - Types (as declarations only): `integerp`, `booleanp`, `rationalp`, `symbolp`
 
 Notably ABSENT: `>=`, `>`, `<=`, `max`, `min` (though these work via expansion)
+
+## Define Macro Patterns
+
+### Non-rec Warning for Return Type Theorems
+
+**Warning**: When using `define` with `:returns (ok booleanp)`, ACL2 may warn:
+```
+ACL2 Warning [Non-rec] in ( DEFTHM BOOLEANP-OF-MY-FUNCTION ...):
+A :REWRITE rule generated from BOOLEANP-OF-MY-FUNCTION will be triggered
+only by terms containing the function symbol MY-FUNCTION, which has a
+non-recursive definition. Unless this definition is disabled, this rule
+is unlikely ever to be used.
+```
+
+**What it means**: The `define` macro auto-generates a theorem like `(booleanp (my-function ...))` as a `:rewrite` rule. But since the function is non-recursive, ACL2 expands the function definition *before* the rewrite rule can fire, making the rule useless.
+
+**Solution**: Use `:type-prescription` instead of the default `:rewrite`:
+
+```lisp
+;; Generates useless :rewrite rule (triggers warning):
+(define my-predicate ((x integerp))
+  :returns (ok booleanp)
+  (< x 10))
+
+;; Works correctly with :type-prescription:
+(define my-predicate ((x integerp))
+  :returns (ok booleanp :rule-classes :type-prescription)
+  (< x 10))
+```
+
+**Why it works**: Type-prescription rules operate at the type-reasoning level, not the rewriting level, so they're effective regardless of whether the function expands.
+
+**File**: `experiments/agents/experiment-02-smtlink-react.lisp`
