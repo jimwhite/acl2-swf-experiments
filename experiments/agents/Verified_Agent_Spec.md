@@ -477,6 +477,111 @@ experiments/agents/
 
 ---
 
+## ACL2 Development Patterns
+
+### Guard Verification Strategies
+
+When functions return typed values that callers need to use, ACL2's guard verification can be tricky because it expands function definitions rather than using theorems. Key patterns:
+
+#### 1. Use Type-Prescription Rules
+
+Return-type theorems need `:rule-classes :type-prescription` to be used during guard verification:
+
+```lisp
+(defthm natp-of-post-json-status
+  (natp (mv-nth 2 (post-json url json-body headers ct rt state)))
+  :rule-classes (:rewrite :type-prescription))
+```
+
+#### 2. Disable Definitions in Guard Hints
+
+When calling functions with proven return types, disable the definition so ACL2 uses the type-prescription rules instead of expanding:
+
+```lisp
+(defun caller (state)
+  (declare (xargs :guard-hints (("Goal" :in-theory (disable callee)))))
+  (let ((result (callee state)))
+    ;; ACL2 now uses natp-of-callee instead of expanding callee
+    (process result)))
+```
+
+#### 3. Include Standard Library Lemmas
+
+The `std/strings/explode-nonnegative-integer` book provides `character-listp-of-explode-nonnegative-integer`, essential when converting numbers to strings for error messages:
+
+```lisp
+(include-book "std/strings/explode-nonnegative-integer" :dir :system)
+;; Now (coerce (explode-nonnegative-integer n 10 nil) 'string) verifies guards
+```
+
+#### 4. Oracle Pattern for External I/O
+
+For network/file I/O that can't be verified, use `read-acl2-oracle` with proper coercion:
+
+```lisp
+(defun external-call (state)
+  (mv-let (err val state)
+    (read-acl2-oracle state)
+    ;; Coerce to expected type for guard satisfaction
+    (mv (if (stringp val) val nil)
+        (if (natp val) val 0)  ; or (nfix val)
+        state)))
+```
+
+### Incremental Development with ACL2-MCP
+
+**Always test smaller pieces before integration:**
+
+1. **Test return types** — Define minimal function, prove return-type theorem
+2. **Test guard verification** — Write minimal caller, see if guards verify
+3. **Identify missing lemmas** — Check which subgoals fail, search books for lemmas
+4. **Iterate** — Fix one issue at a time, re-test
+
+Example session pattern:
+```lisp
+;; In ACL2-MCP session
+(defun test-fn (state) ...)
+(defthm natp-of-test-fn (natp (mv-nth 1 (test-fn state))) :rule-classes :type-prescription)
+
+;; Test caller
+(defun test-caller (state)
+  (declare (xargs :guard-hints (("Goal" :in-theory (disable test-fn)))))
+  (let ((x (mv-nth 1 (test-fn state))))
+    (explode-nonnegative-integer x 10 nil)))  ; Does this verify?
+```
+
+### Raw Lisp Bridge Pattern
+
+For functionality requiring Common Lisp features (HTTP, JSON parsing):
+
+```
+foo.lisp          -- ACL2 logical definitions with guards
+foo-raw.lsp       -- Raw Common Lisp implementations  
+foo.acl2          -- Certificate config with :ttags
+```
+
+Key points:
+- ACL2 definitions are stubs that call `(er hard? ...)`
+- Raw definitions replace stubs via `(include-raw "foo-raw.lsp" :host-readtable t)`
+- Guard theorems proven on logical definitions still hold
+- Break deep nesting into helper functions for maintainability
+
+### Searching the Books
+
+When guard verification fails with "need to prove X about Y", search:
+
+```bash
+grep -r "X-of-Y\|Y.*X" /home/acl2/books/std --include="*.lisp" | head -20
+```
+
+Common locations:
+- `std/strings/` — String and character operations
+- `std/lists/` — List operations
+- `arithmetic-5/` — Numeric properties
+- `centaur/fty/` — FTY-related lemmas
+
+---
+
 ## References
 
 - [ACL2 FTY Documentation](https://www.cs.utexas.edu/users/moore/acl2/manuals/current/manual/?topic=FTY____FTY)
@@ -488,6 +593,18 @@ experiments/agents/
 ---
 
 ## Changelog
+
+### v1.2 (2025-12-30)
+- Added ACL2 Development Patterns section
+  - Guard verification strategies (type-prescription, disable hints)
+  - Oracle pattern for external I/O
+  - Incremental development with ACL2-MCP
+  - Raw Lisp bridge pattern
+  - Tips for searching the books
+- Completed LLM HTTP integration implementation
+  - http-json.lisp: Properly-guarded JSON POST
+  - llm-client.lisp: LLM API wrapper (certified)
+  - All guards verified, no bypassing
 
 ### v1.1 (2025-12-30)
 - Added LLM HTTP integration plan (Phase 1.5)
