@@ -9,6 +9,9 @@
 ;   (ld "chat-demo.lisp")
 ;
 ; Or run cells individually after loading books.
+;
+; NOTE: This file is meant for interactive use (ld), not certification.
+; It makes live LLM calls and defines constants dynamically.
 
 (in-package "ACL2")
 
@@ -17,8 +20,10 @@
 ;;;============================================================================
 
 ;; Use full paths for ACL2-MCP compatibility
+;; Trust tags needed for quicklisp/HTTP client
 (include-book "/workspaces/acl2-swf-experiments/experiments/agents/verified-agent")
-(include-book "/workspaces/acl2-swf-experiments/experiments/agents/llm-client")
+(include-book "/workspaces/acl2-swf-experiments/experiments/agents/llm-client"
+              :ttags (:quicklisp :quicklisp.osicat))
 
 ;;;============================================================================
 ;;; Cell 2: Configuration - Auto-select best available model
@@ -127,53 +132,28 @@ Be concise but helpful in your responses.")
   (show-conversation *agent-v2*))
 
 ;;;============================================================================
-;;; Cell 7: Get LLM response for Turn 1
+;;; Cell 7: Get LLM response for Turn 1 and add to conversation
 ;;;============================================================================
 
-;; This actually calls the LLM - requires LM Studio running!
-;; Call LLM and print the response
+;; This calls the LLM and adds the response to conversation
+;; Requires LM Studio running!
 (make-event
  (mv-let (err response state)
    (llm-chat-completion *model-id* (get-messages *agent-v2*) state)
-   (prog2$ 
-    (if err
-        (cw "~%LLM Error: ~s0~%" err)
-      (cw "~%LLM Response:~%~s0~%" response))
-    (mv nil '(value-triple :llm-called) state))))
-
-;;;============================================================================
-;;; Cell 8: Add assistant response to conversation
-;;;============================================================================
-
-;; NOTE: After running Cell 7, manually copy the response text here
-;; Or use the response from the mv if you're running interactively
-
-(defconst *assistant-response-1*
-  "A formally verified agent is an AI system whose decision-making logic has been mathematically proven correct using a theorem prover like ACL2. This means properties like 'the agent will always respect permission boundaries' or 'the agent will eventually terminate' are guaranteed by proof, not just testing. The agent you're talking to right now has verified properties for permission safety, budget bounds, and termination!")
-
-(defconst *agent-v3*
-  (add-assistant-msg *assistant-response-1* *agent-v2*))
+   (if err
+       (prog2$ (cw "~%LLM Error: ~s0~%" err)
+               (mv nil `(defconst *agent-v3* *agent-v2*) state))
+     (prog2$ (cw "~%Assistant: ~s0~%" response)
+             (mv nil `(defconst *agent-v3* 
+                        (add-assistant-msg ,response *agent-v2*)) 
+                 state)))))
 
 ;; Show updated conversation
 (defconst *show-v3*
   (show-conversation *agent-v3*))
 
 ;;;============================================================================
-;;; Cell 9: Verify agent state is still valid
-;;;============================================================================
-
-(defconst *state-check-1*
-  (prog2$ (cw "~%Agent State Check:~%")
-    (prog2$ (cw "  agent-state-p: ~x0~%" (agent-state-p *agent-v3*))
-      (prog2$ (cw "  must-respond-p: ~x0~%" (must-respond-p *agent-v3*))
-        (prog2$ (cw "  should-continue-p: ~x0~%" (should-continue-p *agent-v3*))
-          (prog2$ (cw "  step-counter: ~x0~%" (agent-state->step-counter *agent-v3*))
-            (prog2$ (cw "  messages count: ~x0~%" (len (get-messages *agent-v3*)))
-              (cw "  conversation-has-room-p: ~x0~%" 
-                  (conversation-has-room-p *agent-v3*)))))))))
-
-;;;============================================================================
-;;; Cell 10: User Turn 2 - Follow-up question
+;;; Cell 8: User Turn 2 - Follow-up question
 ;;;============================================================================
 
 (defconst *agent-v4*
@@ -184,55 +164,56 @@ Be concise but helpful in your responses.")
   (show-conversation *agent-v4*))
 
 ;;;============================================================================
-;;; Cell 11: Get LLM response for Turn 2
-;;;============================================================================
+;;; Cell 9: Get LLM response for Turn 2
+;;=============================================================================
 
-;; Uncomment to call LLM:
-;; (mv-let (err response state)
-;;   (llm-chat-completion *model-id* (get-messages *agent-v4*) state)
-;;   (if err
-;;       (prog2$ (cw "~%LLM Error: ~s0~%" err)
-;;               (mv "Error" state))
-;;     (prog2$ (cw "~%LLM Response:~%~s0~%" response)
-;;             (mv response state))))
-
-(defconst *assistant-response-2*
-  "Several key properties have been formally proven:
-
-1. **Permission Safety** - The agent can only invoke tools it has permission for
-2. **Budget Bounds** - Token and time budgets never go negative after deductions
-3. **Termination** - The agent is guaranteed to stop (max steps, budget exhaustion, or completion)
-4. **State Preservation** - All state transitions preserve the validity of agent state
-5. **Conversation Preservation** - Adding messages doesn't affect control flow decisions
-
-These aren't just tested - they're mathematically proven to hold for ALL possible inputs!")
-
-(defconst *agent-v5*
-  (add-assistant-msg *assistant-response-2* *agent-v4*))
+;; Call LLM and add response to conversation
+(make-event
+ (mv-let (err response state)
+   (llm-chat-completion *model-id* (get-messages *agent-v4*) state)
+   (if err
+       (prog2$ (cw "~%LLM Error: ~s0~%" err)
+               (mv nil `(defconst *agent-v5* *agent-v4*) state))
+     (prog2$ (cw "~%Assistant: ~s0~%" response)
+             (mv nil `(defconst *agent-v5* 
+                        (add-assistant-msg ,response *agent-v4*)) 
+                 state)))))
 
 (defconst *show-v5*
   (show-conversation *agent-v5*))
 
 ;;;============================================================================
-;;; Cell 12: User Turn 3 - Test context management
-;;;============================================================================
+;;; Cell 10: User Turn 3 - Get LLM response
+;;=============================================================================
 
 (defconst *agent-v6*
   (add-user-msg "That's impressive! How does the context management work?" 
                 *agent-v5*))
 
-(defconst *show-v6*
-  (show-conversation *agent-v6*))
+;; Call LLM for Turn 3
+(make-event
+ (mv-let (err response state)
+   (llm-chat-completion *model-id* (get-messages *agent-v6*) state)
+   (if err
+       (prog2$ (cw "~%LLM Error: ~s0~%" err)
+               (mv nil `(defconst *agent-v7* *agent-v6*) state))
+     (prog2$ (cw "~%Assistant: ~s0~%" response)
+             (mv nil `(defconst *agent-v7* 
+                        (add-assistant-msg ,response *agent-v6*)) 
+                 state)))))
+
+(defconst *show-v7*
+  (show-conversation *agent-v7*))
 
 ;;;============================================================================
-;;; Cell 13: Check context token usage
-;;;============================================================================
+;;; Cell 11: Check context token usage
+;;=============================================================================
 
 (defconst *context-check*
-  (let* ((msgs (get-messages *agent-v6*))
+  (let* ((msgs (get-messages *agent-v7*))
          (char-len (messages-char-length msgs))
          (token-est (messages-token-estimate msgs))
-         (max-tokens (agent-state->max-context-tokens *agent-v6*)))
+         (max-tokens (agent-state->max-context-tokens *agent-v7*)))
     (prog2$ (cw "~%Context Usage:~%")
       (prog2$ (cw "  Total characters: ~x0~%" char-len)
         (prog2$ (cw "  Estimated tokens: ~x0~%" token-est)
@@ -242,8 +223,8 @@ These aren't just tested - they're mathematically proven to hold for ALL possibl
                   (messages-fit-p msgs max-tokens)))))))))
 
 ;;;============================================================================
-;;; Cell 14: Simulate a tool result (demonstrates add-tool-result)
-;;;============================================================================
+;;; Cell 12: Simulate a tool result (demonstrates add-tool-result)
+;;=============================================================================
 
 ;; Simulate calling a file-read tool
 (defconst *agent-with-tool*
@@ -254,14 +235,14 @@ These aren't just tested - they're mathematically proven to hold for ALL possibl
 (in-package \"ACL2\")
 (include-book \"std/util/define\" :dir :system)
 ..." 
-    *agent-v6*))
+    *agent-v7*))
 
 (defconst *show-tool*
   (show-conversation *agent-with-tool*))
 
 ;;;============================================================================
-;;; Cell 15: Interactive function for live chat
-;;;============================================================================
+;;; Cell 13: Interactive function for live chat
+;;=============================================================================
 
 ;; Use this function for interactive chatting
 ;; Call: (chat "your message here" *current-agent-state*)
@@ -280,13 +261,8 @@ These aren't just tested - they're mathematically proven to hold for ALL possibl
           (prog2$ (cw "~%Assistant: ~s0~%" response)
                   (mv st-with-response state)))))))
 
-;; Example usage (uncomment to run):
-;; (mv-let (new-agent state)
-;;   (chat-turn "What is 2+2?" *agent-v1* *model-id* state)
-;;   (mv (show-conversation new-agent) new-agent state))
-
 ;;;============================================================================
-;;; Cell 16: Full ReAct step demonstration
+;;; Cell 14: Full ReAct step demonstration
 ;;;============================================================================
 
 ;; Create a tool spec for demonstration
@@ -301,20 +277,20 @@ These aren't just tested - they're mathematically proven to hold for ALL possibl
 ;; Check if we can invoke this tool
 (defconst *can-read-file*
   (prog2$ (cw "~%Can invoke read-file tool: ~x0~%" 
-              (can-invoke-tool-p *read-file-tool* *agent-v6*))
-          (can-invoke-tool-p *read-file-tool* *agent-v6*)))
+              (can-invoke-tool-p *read-file-tool* *agent-v7*))
+          (can-invoke-tool-p *read-file-tool* *agent-v7*)))
 
 ;; Simulate a ReAct step with conversation
 (defconst *agent-after-react*
-  (if (and (not (must-respond-p *agent-v6*))
-           (can-invoke-tool-p *read-file-tool* *agent-v6*))
+  (if (and (not (must-respond-p *agent-v7*))
+           (can-invoke-tool-p *read-file-tool* *agent-v7*))
       (react-step-with-conversation
         (agent-action-tool-call 'read-file "verified-agent.lisp")
         *read-file-tool*
         "I'll read the verified-agent.lisp file to show you the implementation."
         "File read successfully. Contents: (in-package ACL2)..."
-        *agent-v6*)
-    *agent-v6*))
+        *agent-v7*)
+    *agent-v7*))
 
 (defconst *show-react*
   (prog2$ (cw "~%After ReAct step:~%")
