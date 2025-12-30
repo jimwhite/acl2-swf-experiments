@@ -18,6 +18,7 @@
 
 (include-book "centaur/fty/top" :dir :system)
 (include-book "std/util/define" :dir :system)
+(include-book "llm-types")  ; chat-message-list-p, model-info-p
 
 ;;;============================================================================
 ;;; Part 2: Error Types
@@ -49,14 +50,21 @@
 ;;; Part 4: Agent State
 ;;;============================================================================
 
-;; Core agent state - tracks resources, permissions, and status
+;; Core agent state - tracks resources, permissions, conversation, and status
 (fty::defprod agent-state
-  ((step-counter natp :default 0)
+  (;; Step and resource management
+   (step-counter natp :default 0)
    (max-steps natp :default 100)
    (token-budget natp :default 10000)
    (time-budget natp :default 3600)
-   (file-access natp :default 0)          ; granted access level
+   ;; Permissions
+   (file-access natp :default 0)          ; granted access level (0/1/2)
    (execute-allowed booleanp :default nil)
+   ;; Conversation history (for LLM context)
+   (messages chat-message-list-p :default nil)
+   (max-context-tokens natp :default 8000) ; from model-info->loaded-context-length
+   (system-prompt stringp :default "")     ; cached for reference
+   ;; Completion status
    (satisfaction natp :default 0)         ; 0-100 scale
    (done booleanp :default nil)
    (error-state error-kind-p :default '(:none)))
