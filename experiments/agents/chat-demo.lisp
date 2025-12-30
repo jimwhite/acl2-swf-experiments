@@ -400,4 +400,5 @@ Be concise but helpful in your responses.")
         (interactive-chat-loop-aux agent-st model-id state)))))
 
 ;; To start interactive chat, uncomment and run:
+#-skip-interactive
 ;; (interactive-chat-loop *agent-v1* *model-id* state)
