@@ -1,0 +1,3 @@
+; verified-agent.acl2 - Certification setup for verified-agent.lisp
+; No special setup needed - FTY books are self-contained
+(in-package "ACL2")
