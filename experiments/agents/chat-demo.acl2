@@ -1,0 +1,7 @@
+; Certification setup for chat-demo.lisp
+; Requires ttags for quicklisp/dexador (via llm-client)
+; Uses cert_env to set SKIP_INTERACTIVE feature during certification
+
+(in-package "ACL2")
+
+; cert-flags: ? t :ttags :all

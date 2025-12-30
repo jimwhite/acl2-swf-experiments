@@ -3,15 +3,19 @@
 ; Load this file in ACL2, then execute each section in order.
 ; Each "cell" is marked with a comment header.
 ;
-; Usage:
+; Usage (interactive):
 ;   cd /workspaces/acl2-swf-experiments/experiments/agents
 ;   acl2
 ;   (ld "chat-demo.lisp")
 ;
-; Or run cells individually after loading books.
+; Usage (certification):
+;   cert.pl chat-demo --acl2-cmd 'env SKIP_INTERACTIVE=1 acl2'
+;   or just: cert.pl chat-demo  (uses cert_env below)
 ;
-; NOTE: This file is meant for interactive use (ld), not certification.
-; It makes live LLM calls and defines constants dynamically.
+; The interactive parts (LLM calls, dynamic defconsts) are skipped
+; during certification using #-skip-interactive reader conditionals.
+
+; cert_param: (cert_env "SKIP_INTERACTIVE=1")
 
 (in-package "ACL2")
 
@@ -23,7 +27,7 @@
 ;; Trust tags needed for quicklisp/HTTP client
 (include-book "/workspaces/acl2-swf-experiments/experiments/agents/verified-agent")
 (include-book "/workspaces/acl2-swf-experiments/experiments/agents/llm-client"
-              :ttags (:quicklisp :quicklisp.osicat))
+              :ttags ((:quicklisp) (:quicklisp.osicat) (:quicklisp.dexador) (:http-json) (:llm-client)))
 
 ;;;============================================================================
 ;;; Cell 2: Configuration - Auto-select best available model
@@ -31,6 +35,9 @@
 
 ;; Model preferences in order - first match wins
 (defconst *model-prefs* '("qwen" "nemotron" "llama" "gemma"))
+
+#-skip-interactive
+(progn
 
 ;; Get full model info and select best loaded completions model
 (make-event
@@ -62,6 +69,8 @@
              ,(if selected (model-info->id selected) "no-model-found"))
           state)))))
 
+) ; end #-skip-interactive
+
 ;;;============================================================================
 ;;; Cell 3: Create initial agent state
 ;;;============================================================================
@@ -88,11 +97,16 @@ Be concise but helpful in your responses.")
 (defconst *agent-v1*
   (init-agent-conversation *system-prompt* *initial-state*))
 
+#-skip-interactive
+(progn
+
 ;; Verify the conversation was initialized
 (defconst *check-init*
   (prog2$ (cw "Agent initialized. Messages: ~x0~%" 
               (len (get-messages *agent-v1*)))
           t))
+
+) ; end #-skip-interactive
 
 ;;;============================================================================
 ;;; Cell 5: Helper function to display conversation
@@ -118,6 +132,13 @@ Be concise but helpful in your responses.")
   (prog2$ (cw "~%========== Conversation ==========")
           (prog2$ (show-messages (get-messages st))
                   (cw "~%===================================~%"))))
+
+;;;============================================================================
+;;; Interactive conversation demo (skipped during certification)
+;;;============================================================================
+
+#-skip-interactive
+(progn
 
 ;;;============================================================================
 ;;; Cell 6: User Turn 1 - Add a user message
@@ -317,3 +338,5 @@ Be concise but helpful in your responses.")
                   (prog2$ (cw "  5. ReAct step with conversation~%")
                     (prog2$ (cw "  6. State preservation verification~%")
                       (cw "~%For live LLM chat, ensure LM Studio is running at:~%  http://host.docker.internal:1234~%"))))))))))))
+
+) ; end #-skip-interactive
