@@ -1,0 +1,6 @@
+; Certification setup for llm-client.lisp
+; Requires ttags for quicklisp/dexador (via htclient)
+
+(in-package "ACL2")
+
+; cert-flags: ? t :ttags :all

@@ -1,0 +1,9 @@
+{
+  "github.copilot.chat.mcp.servers": {
+    "acl2-mcp": {
+      "command": "/workspaces/acl2-swf-experiments/.venv/bin/acl2-mcp",
+      "args": [],
+      "env": {}
+    }
+  }
+}

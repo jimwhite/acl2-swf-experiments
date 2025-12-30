@@ -1,0 +1,6 @@
+; Certification setup for http-json.lisp
+; Requires ttags for quicklisp/dexador
+
+(in-package "ACL2")
+
+; cert-flags: ? t :ttags :all

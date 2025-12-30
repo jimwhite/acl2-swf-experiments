@@ -213,11 +213,138 @@ External tools are modeled via ACL2's `encapsulate`:
 
 ---
 
+## LLM Integration (Phase 1.5)
+
+### Overview
+
+HTTP client integration for LM Studio using the Kestrel `htclient` library (wraps dexador). FTY-typed message structures enable verified reasoning about conversation flow while JSON serialization handles the wire protocol.
+
+### Architecture
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                    Verified Agent (ACL2)                        │
+│  verified-agent.lisp                                            │
+│  └── external-tool-call dispatches to llm-chat-completion       │
+├─────────────────────────────────────────────────────────────────┤
+│                    LLM Client (ACL2)                            │
+│  llm-client.lisp                                                │
+│  ├── llm-chat-completion (model, messages, state) → response    │
+│  ├── Uses FTY chat-message types for verified reasoning         │
+│  └── Includes kestrel/htclient for HTTP POST                    │
+├─────────────────────────────────────────────────────────────────┤
+│                    LLM Types (ACL2)                             │
+│  llm-types.lisp                                                 │
+│  ├── chat-role (deftagsum: :system, :user, :assistant, :tool)   │
+│  ├── chat-message (defprod: role, content)                      │
+│  └── chat-message-list (deflist)                                │
+├─────────────────────────────────────────────────────────────────┤
+│                    Raw Lisp Bridge                              │
+│  llm-client-raw.lsp                                             │
+│  ├── serialize-chat-message → JSON object                       │
+│  ├── serialize-messages → JSON array                            │
+│  └── serialize-chat-request → full OpenAI-format body           │
+└─────────────────────────────────────────────────────────────────┘
+                              │
+                              │ HTTP POST (JSON)
+                              ▼
+┌─────────────────────────────────────────────────────────────────┐
+│  LM Studio (host.docker.internal:1234)                          │
+│  OpenAI-compatible /v1/chat/completions endpoint                │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### LLM Type Definitions
+
+#### chat-role (deftagsum)
+
+| Variant | Purpose |
+|---------|---------|
+| `:system` | System prompt / instructions |
+| `:user` | User input |
+| `:assistant` | Model response |
+| `:tool` | Tool result (future: MCP integration) |
+
+#### chat-message (defprod)
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `role` | `chat-role-p` | Message role |
+| `content` | `stringp` | Message text |
+
+*Future extension for MCP: add optional `tool-calls` and `tool-call-id` fields*
+
+#### chat-message-list (deflist)
+
+List of `chat-message` for conversation history.
+
+### LLM Client API
+
+```lisp
+(define llm-chat-completion
+  ((model stringp "Model identifier, e.g., 'local-model'")
+   (messages chat-message-list-p "Conversation history")
+   state)
+  :returns (mv (error "NIL on success or error string")
+               (response "Assistant response content" stringp)
+               state))
+```
+
+### Configuration
+
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `*lm-studio-endpoint*` | `"http://host.docker.internal:1234/v1/chat/completions"` | LM Studio API URL |
+| `*llm-connect-timeout*` | 30 | Connection timeout (seconds) |
+| `*llm-read-timeout*` | 120 | Read timeout (seconds, higher for slow models) |
+
+### Wire Protocol
+
+**Request (OpenAI format):**
+```json
+{
+  "model": "local-model",
+  "messages": [
+    {"role": "system", "content": "You are a helpful assistant."},
+    {"role": "user", "content": "Hello!"}
+  ]
+}
+```
+
+**Response parsing:** Extract `choices[0].message.content` from JSON response.
+
+### Error Handling
+
+- HTTP 200-299: Success, parse JSON response
+- HTTP 4xx/5xx: Return error string with status code
+- Connection errors: Return error string with exception message
+- JSON parse errors: Return error string with parse failure details
+
+### File Structure
+
+```
+experiments/agents/
+├── verified-agent.lisp      # Main agent (existing)
+├── verified-agent.acl2      # Cert setup (existing)
+├── llm-types.lisp           # FTY message types (new)
+├── llm-client.lisp          # HTTP client wrapper (new)
+├── llm-client-raw.lsp       # JSON serialization (new)
+└── llm-client.acl2          # Cert setup with ttags (new)
+```
+
+---
+
+## MCP Integration (Phase 1.6 - Planned)
+
+After LLM HTTP integration is working, add MCP tool calls for Oxigraph and Qdrant using the same HTTP/JSON-RPC pattern.
+
+---
+
 ## Runtime Architecture (Future)
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│                     Python Runtime                              │
+│                     Python Runtime (optional)                   │
 ├─────────────────────────────────────────────────────────────────┤
 │  LangGraph Orchestration                                        │
 │  ├── State management (mirrors ACL2 agent-state)                │
@@ -229,6 +356,9 @@ External tools are modeled via ACL2's `encapsulate`:
 │  ├── qdrant-mcp (vector search)                                 │
 │  └── llm-mcp (chat completions)                                 │
 └─────────────────────────────────────────────────────────────────┘
+
+Note: With htclient integration, the agent can run entirely in ACL2/SBCL
+without Python. Python runtime becomes optional for orchestration.
 ```
 
 ### Constraint Extraction
@@ -335,10 +465,14 @@ experiments/agents/
 ├── verified-agent.lisp      # Main implementation
 ├── verified-agent.acl2      # Certification setup
 ├── verified-agent.cert      # Generated certificate
+├── llm-types.lisp           # FTY message types (v1.1)
+├── llm-client.lisp          # HTTP client wrapper (v1.1)
+├── llm-client-raw.lsp       # JSON serialization (v1.1)
+├── llm-client.acl2          # Cert setup with ttags (v1.1)
 └── (future)
     ├── verified-agent-v2.lisp   # With facts/goals
-    ├── verified-agent-runtime.py # Python runtime
-    └── z3_constraints.py         # Extracted constraints
+    ├── mcp-client.lisp          # MCP JSON-RPC client
+    └── z3_constraints.py        # Extracted constraints
 ```
 
 ---
@@ -354,6 +488,13 @@ experiments/agents/
 ---
 
 ## Changelog
+
+### v1.1 (2025-12-30)
+- Added LLM HTTP integration plan (Phase 1.5)
+- FTY types for chat messages (chat-role, chat-message, chat-message-list)
+- HTTP client using Kestrel htclient library
+- JSON serialization via raw Lisp bridge
+- LM Studio endpoint configuration
 
 ### v1.0 (2025-12-30)
 - Initial implementation with FTY types
