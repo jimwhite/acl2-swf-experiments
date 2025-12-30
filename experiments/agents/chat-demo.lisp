@@ -348,3 +348,56 @@ Be concise but helpful in your responses.")
                   (prog2$ (cw "  5. ReAct step with conversation~%")
                     (prog2$ (cw "  6. State preservation verification~%")
                       (cw "~%For live LLM chat, ensure LM Studio is running at:~%  http://host.docker.internal:1234~%"))))))))))))
+
+;;;============================================================================
+;;; Cell 15: Interactive Chat Loop
+;;;============================================================================
+
+;; Read a line from standard input character by character
+#-skip-interactive
+(defun read-line-chars (acc state)
+  "Accumulate characters until newline or EOF."
+  (declare (xargs :mode :program :stobjs state))
+  (mv-let (char state)
+    (read-char$ *standard-ci* state)
+    (cond ((null char)  ; EOF
+           (mv (if (null acc) nil (coerce (reverse acc) 'string)) state))
+          ((eql char #\Newline)
+           (mv (coerce (reverse acc) 'string) state))
+          (t (read-line-chars (cons char acc) state)))))
+
+#-skip-interactive
+(defun read-line-from-user (state)
+  "Read a line from standard input, return (mv line state)."
+  (declare (xargs :mode :program :stobjs state))
+  (read-line-chars nil state))
+
+;; Helper must be defined before main function
+#-skip-interactive
+(defun interactive-chat-loop-aux (agent-st model-id state)
+  "Helper for interactive chat loop."
+  (declare (xargs :mode :program :stobjs state))
+  (prog2$ (cw "You: ")  ; prompt
+    (mv-let (input state)
+      (read-line-from-user state)
+      (if (or (null input)
+              (equal input "/exit")
+              (equal input "/quit"))
+          (prog2$ (cw "~%Goodbye!~%")
+                  (mv agent-st state))
+        (mv-let (new-agent state)
+          (chat-turn input agent-st model-id state)
+          (interactive-chat-loop-aux new-agent model-id state))))))
+
+;; Interactive chat loop - runs until user types /exit
+#-skip-interactive
+(defun interactive-chat-loop (agent-st model-id state)
+  "Run an interactive chat loop. Type /exit to quit."
+  (declare (xargs :mode :program :stobjs state))
+  (prog2$ (cw "~%========================================~%")
+    (prog2$ (cw "Interactive Chat (type /exit to quit)~%")
+      (prog2$ (cw "========================================~%")
+        (interactive-chat-loop-aux agent-st model-id state)))))
+
+;; To start interactive chat, uncomment and run:
+;; (interactive-chat-loop *agent-v1* *model-id* state)
