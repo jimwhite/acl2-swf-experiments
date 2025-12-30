@@ -14,7 +14,8 @@
 (in-package "ACL2")
 
 (include-book "llm-types")
-(include-book "http-json")
+(include-book "http-json" 
+              :ttags ((:quicklisp) (:quicklisp.dexador) (:http-json)))
 (include-book "std/strings/explode-nonnegative-integer" :dir :system)
 (include-book "kestrel/json-parser/parse-json" :dir :system)
 ; (depends-on "llm-client-raw.lsp")

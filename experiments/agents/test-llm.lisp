@@ -5,7 +5,8 @@
 (in-package "ACL2")
 
 ;; Load the LLM client
-(include-book "llm-client")
+(include-book "llm-client" 
+              :ttags ((:quicklisp) (:quicklisp.dexador) (:http-json) (:llm-client)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Test 1: List available models (OpenAI compat - IDs only)
