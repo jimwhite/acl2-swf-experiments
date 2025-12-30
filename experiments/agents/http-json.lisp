@@ -89,6 +89,61 @@
            (state-p1 (mv-nth 3 (post-json url json-body headers ct rt state)))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; get-json: HTTP GET for JSON endpoints
+;;
+;; Parameters:
+;;   url           - Target URL (stringp)
+;;   headers       - HTTP headers as alist (alistp)
+;;   connect-timeout - Connection timeout in seconds (natp)
+;;   read-timeout  - Read timeout in seconds (natp)
+;;   state         - ACL2 state
+;;
+;; Returns: (mv error body status state)
+;;   error  - NIL on success, error string on failure
+;;   body   - Response body as string
+;;   status - HTTP status code (0 on error)
+;;   state  - Updated state
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+(defun get-json (url headers connect-timeout read-timeout state)
+  (declare (xargs :guard (and (stringp url)
+                              (alistp headers)
+                              (natp connect-timeout)
+                              (natp read-timeout))
+                  :stobjs state)
+           (ignore url headers connect-timeout read-timeout))
+  ;; Logical definition reads from oracle (will be replaced by raw Lisp)
+  (prog2$ 
+   (er hard? 'get-json "Raw Lisp definition not installed?")
+   (mv-let (err1 val1 state)
+     (read-acl2-oracle state)
+     (declare (ignore err1))
+     (mv-let (err2 val2 state)
+       (read-acl2-oracle state)
+       (declare (ignore err2))
+       (mv-let (err3 val3 state)
+         (read-acl2-oracle state)
+         (declare (ignore err3))
+         ;; Return: error (or nil), body string, status code
+         (mv (if (stringp val1) val1 nil)
+             (if (stringp val2) val2 "")
+             (if (natp val3) val3 0)
+             state))))))
+
+;; Return type theorems for get-json
+(defthm stringp-of-get-json-body
+  (stringp (mv-nth 1 (get-json url headers ct rt state)))
+  :rule-classes (:rewrite :type-prescription))
+
+(defthm natp-of-get-json-status
+  (natp (mv-nth 2 (get-json url headers ct rt state)))
+  :rule-classes (:rewrite :type-prescription))
+
+(defthm state-p1-of-get-json
+  (implies (state-p1 state)
+           (state-p1 (mv-nth 3 (get-json url headers ct rt state)))))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Trust tag and raw Lisp inclusion
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 

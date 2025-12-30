@@ -47,3 +47,31 @@
                  (let ((condition-str (format nil "~a" condition)))
                    (mv condition-str "" 0 state))))))))
 
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; get-json implementation
+;;
+;; Makes HTTP GET request.
+;; Returns (mv error-string body-string status-code state)
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+(defun get-json (url headers connect-timeout read-timeout state)
+  (if (not (live-state-p state))
+      (prog2$ (error "GET-JSON can only be called on a live state.")
+              (mv "ERROR: not live state" "" 0 state))
+    (if (not (stringp url))
+        (prog2$ (error "GET-JSON called with non-stringp url")
+                (mv "ERROR: url not string" "" 0 state))
+      (handler-case
+          (multiple-value-bind (body status response-headers uri stream)
+              (dex:get url 
+                       :headers headers
+                       :connect-timeout connect-timeout
+                       :read-timeout read-timeout)
+            (declare (ignore response-headers uri stream))
+            ;; Return success: nil error, body, status, state
+            (mv nil (if (stringp body) body "") status state))
+        
+        (error (condition)
+               (let ((condition-str (format nil "~a" condition)))
+                 (mv condition-str "" 0 state)))))))
+

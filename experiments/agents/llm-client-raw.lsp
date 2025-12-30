@@ -132,3 +132,49 @@
         ""
         (or (extract-chat-content parsed) ""))))
 
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; Models List Parsing
+;;
+;; GET /v1/models response format:
+;; {
+;;   "data": [
+;;     {"id": "model-name-1", "object": "model", ...},
+;;     {"id": "model-name-2", "object": "model", ...}
+;;   ],
+;;   "object": "list"
+;; }
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+(defun extract-model-ids (parsed)
+  "Extract model IDs from parsed /v1/models response.
+   Returns a list of model ID strings."
+  (and (consp parsed)
+       (eq (car parsed) :object)
+       (consp (cdr parsed))
+       (let* ((pairs (cadr parsed))
+              (data-entry (assoc "data" pairs :test #'equal)))
+         (and data-entry
+              (consp (cdr data-entry))
+              (eq (cadr data-entry) :array)
+              (consp (cddr data-entry))
+              ;; Map over the array elements to extract "id" fields
+              (loop for model-obj in (caddr data-entry)
+                    when (and (consp model-obj)
+                              (eq (car model-obj) :object)
+                              (consp (cdr model-obj)))
+                    collect (let* ((model-pairs (cadr model-obj))
+                                   (id-entry (assoc "id" model-pairs :test #'equal)))
+                              (if (and id-entry (stringp (cdr id-entry)))
+                                  (cdr id-entry)
+                                  "")))))))
+
+(defun parse-models-response (json)
+  "Parse /v1/models response, extract list of model IDs.
+   Uses Kestrel json-parser for robust JSON handling.
+   Returns list of model ID strings, or NIL on parse failure."
+  (multiple-value-bind (err parsed)
+      (parse-string-as-json json)
+    (if err
+        nil
+        (or (extract-model-ids parsed) nil))))
+

@@ -26,6 +26,9 @@
 (defconst *lm-studio-endpoint* 
   "http://host.docker.internal:1234/v1/chat/completions")
 
+(defconst *lm-studio-models-endpoint*
+  "http://host.docker.internal:1234/v1/models")
+
 (defconst *llm-connect-timeout* 30)   ; seconds
 (defconst *llm-read-timeout* 120)     ; seconds (higher for slow local models)
 
@@ -84,6 +87,19 @@
 
 (defthm stringp-of-parse-chat-response
   (stringp (parse-chat-response json)))
+
+;; Parse models response JSON, extract list of model IDs
+;; Input: json response string from /v1/models
+;; Output: list of model ID strings (nil on parse failure)
+;; Note: Implementation in llm-client-raw.lsp uses kestrel/json-parser
+(defun parse-models-response (json)
+  (declare (xargs :guard (stringp json))
+           (ignore json))
+  (prog2$ (er hard? 'parse-models-response "Raw Lisp definition not installed?")
+          nil))
+
+(defthm string-listp-of-parse-models-response
+  (string-listp (parse-models-response json)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Main API
@@ -157,6 +173,55 @@
 (defthm state-p1-of-llm-chat-completion
   (implies (state-p1 state)
            (state-p1 (mv-nth 2 (llm-chat-completion model messages state)))))
+
+;; List available models from LLM server
+;;
+;; Parameters:
+;;   state - ACL2 state
+;;
+;; Returns: (mv error models state)
+;;   error  - NIL on success, error string on failure
+;;   models - List of model ID strings (string-listp)
+;;   state  - Updated state
+(defun llm-list-models (state)
+  (declare (xargs :stobjs state))
+  (b* (;; HTTP headers for JSON API
+       (headers '(("Accept" . "application/json")))
+       
+       ;; Make HTTP GET request
+       ((mv err response-body status-raw state)
+        (get-json *lm-studio-models-endpoint*
+                  headers
+                  *llm-connect-timeout*
+                  *llm-read-timeout*
+                  state))
+       
+       ;; Coerce status to natp
+       (status (mbe :logic (nfix status-raw) :exec status-raw))
+       
+       ;; Check for network/connection errors
+       ((when err)
+        (mv err nil state))
+       
+       ;; Check for HTTP error status
+       ((unless (http-success-p status))
+        (mv (concatenate 'string "HTTP error: status " 
+                        (coerce (explode-nonnegative-integer status 10 nil) 'string))
+            nil
+            state))
+       
+       ;; Parse the response JSON to extract model list
+       (models (parse-models-response response-body)))
+    
+    (mv nil models state)))
+
+;; Return type theorems for llm-list-models
+(defthm string-listp-of-llm-list-models-models
+  (string-listp (mv-nth 1 (llm-list-models state))))
+
+(defthm state-p1-of-llm-list-models
+  (implies (state-p1 state)
+           (state-p1 (mv-nth 2 (llm-list-models state)))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Trust tag and raw Lisp inclusion for serialization functions
