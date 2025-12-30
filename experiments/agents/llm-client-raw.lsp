@@ -178,3 +178,97 @@
         nil
         (or (extract-model-ids parsed) nil))))
 
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; LM Studio v0 API Models Parsing
+;;
+;; GET /api/v0/models response format:
+;; {
+;;   "data": [
+;;     {
+;;       "id": "model-name",
+;;       "type": "llm",           ; or "vlm", "embeddings"
+;;       "state": "loaded",       ; or "not-loaded"
+;;       "publisher": "...",
+;;       "arch": "...",
+;;       "quantization": "...",
+;;       "max_context_length": 131072,
+;;       "loaded_context_length": 4096  ; only when loaded
+;;     },
+;;     ...
+;;   ]
+;; }
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+(defun extract-v0-model-info (model-obj)
+  "Extract model-info from a single parsed model object.
+   Returns a model-info-p structure."
+  (if (and (consp model-obj)
+           (eq (car model-obj) :object)
+           (consp (cdr model-obj)))
+      (let* ((pairs (cadr model-obj))
+             (id (cdr (assoc "id" pairs :test #'equal)))
+             (type-str (cdr (assoc "type" pairs :test #'equal)))
+             (state-str (cdr (assoc "state" pairs :test #'equal)))
+             (publisher (cdr (assoc "publisher" pairs :test #'equal)))
+             (arch (cdr (assoc "arch" pairs :test #'equal)))
+             (quant (cdr (assoc "quantization" pairs :test #'equal)))
+             (max-ctx (cdr (assoc "max_context_length" pairs :test #'equal)))
+             (loaded-ctx (cdr (assoc "loaded_context_length" pairs :test #'equal))))
+        (make-model-info
+         :id (if (stringp id) id "")
+         :type (string-to-model-type (if (stringp type-str) type-str "llm"))
+         :load-state (string-to-model-state (if (stringp state-str) state-str "not-loaded"))
+         :publisher (if (stringp publisher) publisher "")
+         :arch (if (stringp arch) arch "")
+         :quantization (if (stringp quant) quant "")
+         :max-context-length (if (integerp max-ctx) (max 0 max-ctx) 0)
+         :loaded-context-length (if (integerp loaded-ctx) (max 0 loaded-ctx) 0)))
+      ;; Return default empty model-info for malformed input
+      (make-model-info :type (model-type-llm) :load-state (model-state-not-loaded))))
+
+(defun extract-v0-models (parsed)
+  "Extract list of model-info from parsed /api/v0/models response.
+   Returns a model-info-list-p."
+  (if (and (consp parsed)
+           (eq (car parsed) :object)
+           (consp (cdr parsed)))
+      (let* ((pairs (cadr parsed))
+             (data-entry (assoc "data" pairs :test #'equal)))
+        (if (and data-entry
+                 (consp (cdr data-entry))
+                 (eq (cadr data-entry) :array)
+                 (consp (cddr data-entry)))
+            (loop for model-obj in (caddr data-entry)
+                  collect (extract-v0-model-info model-obj))
+            nil))
+      nil))
+
+(defun parse-v0-models-response (json)
+  "Parse /api/v0/models response, extract full model info list.
+   Uses Kestrel json-parser for robust JSON handling.
+   Returns model-info-list-p, or NIL on parse failure."
+  (multiple-value-bind (err parsed)
+      (parse-string-as-json json)
+    (if err
+        nil
+        (or (extract-v0-models parsed) nil))))
+
+;; Re-export find-matching-model in raw Lisp since it uses LOOP
+(defun find-matching-model (models prefs)
+  "Find first model in MODELS whose ID contains any of PREFS as substring."
+  (if (endp prefs)
+      nil
+    (let ((pref (car prefs)))
+      (or (loop for m in models
+                when (search pref (model-info->id m))
+                return m)
+          (find-matching-model models (cdr prefs))))))
+
+(defun select-completions-model (models prefs)
+  "Select best model for completions from MODELS based on PREFS.
+   Returns first loaded completions model matching a pref, or first loaded
+   completions model if no match."
+  (let ((candidates (filter-loaded-completions-models models)))
+    (or (and prefs (find-matching-model candidates prefs))
+        (car candidates))))
+

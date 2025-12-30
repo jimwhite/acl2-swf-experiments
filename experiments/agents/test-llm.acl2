@@ -1,0 +1,3 @@
+; cert.acl2 file for test-llm.lisp
+; Allow trust tags needed by llm-client
+(include-book "llm-client")

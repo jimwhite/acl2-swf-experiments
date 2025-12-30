@@ -26,8 +26,13 @@
 (defconst *lm-studio-endpoint* 
   "http://host.docker.internal:1234/v1/chat/completions")
 
+;; OpenAI-compatible models endpoint (basic info only)
 (defconst *lm-studio-models-endpoint*
   "http://host.docker.internal:1234/v1/models")
+
+;; LM Studio native API (full model info with type, state, context length)
+(defconst *lm-studio-v0-models-endpoint*
+  "http://host.docker.internal:1234/api/v0/models")
 
 (defconst *llm-connect-timeout* 30)   ; seconds
 (defconst *llm-read-timeout* 120)     ; seconds (higher for slow local models)
@@ -89,7 +94,7 @@
   (stringp (parse-chat-response json)))
 
 ;; Parse models response JSON, extract list of model IDs
-;; Input: json response string from /v1/models
+;; Input: json response string from /v1/models (OpenAI format)
 ;; Output: list of model ID strings (nil on parse failure)
 ;; Note: Implementation in llm-client-raw.lsp uses kestrel/json-parser
 (defun parse-models-response (json)
@@ -100,6 +105,19 @@
 
 (defthm string-listp-of-parse-models-response
   (string-listp (parse-models-response json)))
+
+;; Parse LM Studio v0 models response JSON, extract full model info
+;; Input: json response string from /api/v0/models 
+;; Output: list of model-info-p (nil on parse failure)
+;; Note: Implementation in llm-client-raw.lsp uses kestrel/json-parser
+(defun parse-v0-models-response (json)
+  (declare (xargs :guard (stringp json))
+           (ignore json))
+  (prog2$ (er hard? 'parse-v0-models-response "Raw Lisp definition not installed?")
+          nil))
+
+(defthm model-info-list-p-of-parse-v0-models-response
+  (model-info-list-p (parse-v0-models-response json)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Main API
@@ -222,6 +240,96 @@
 (defthm state-p1-of-llm-list-models
   (implies (state-p1 state)
            (state-p1 (mv-nth 2 (llm-list-models state)))))
+
+;; List available models with full info from LM Studio v0 API
+;;
+;; Parameters:
+;;   state - ACL2 state
+;;
+;; Returns: (mv error models state)
+;;   error  - NIL on success, error string on failure
+;;   models - List of model-info-p with full details
+;;   state  - Updated state
+(defun llm-list-models-full (state)
+  (declare (xargs :stobjs state))
+  (b* (;; HTTP headers for JSON API
+       (headers '(("Accept" . "application/json")))
+       
+       ;; Make HTTP GET request to v0 API
+       ((mv err response-body status-raw state)
+        (get-json *lm-studio-v0-models-endpoint*
+                  headers
+                  *llm-connect-timeout*
+                  *llm-read-timeout*
+                  state))
+       
+       ;; Coerce status to natp
+       (status (mbe :logic (nfix status-raw) :exec status-raw))
+       
+       ;; Check for network/connection errors
+       ((when err)
+        (mv err nil state))
+       
+       ;; Check for HTTP error status
+       ((unless (http-success-p status))
+        (mv (concatenate 'string "HTTP error: status " 
+                        (coerce (explode-nonnegative-integer status 10 nil) 'string))
+            nil
+            state))
+       
+       ;; Parse the response JSON to extract full model info
+       (models (parse-v0-models-response response-body)))
+    
+    (mv nil models state)))
+
+;; Return type theorems for llm-list-models-full
+(defthm model-info-list-p-of-llm-list-models-full-models
+  (model-info-list-p (mv-nth 1 (llm-list-models-full state))))
+
+(defthm state-p1-of-llm-list-models-full
+  (implies (state-p1 state)
+           (state-p1 (mv-nth 2 (llm-list-models-full state)))))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; Model Selection
+;;
+;; Select the best model from available models based on preferences.
+;; Default: first loaded completions model that matches any preference string.
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+;; Check if model ID contains a preference substring (case-insensitive would be 
+;; nice but we'll do exact substring for now)
+(defun model-matches-pref-p (model-id pref)
+  (declare (xargs :guard (and (stringp model-id) (stringp pref))))
+  (search pref model-id))
+
+;; Find first model matching any of the preferences
+;; Implementation in raw Lisp uses LOOP for efficiency
+(defun find-matching-model (models prefs)
+  (declare (xargs :guard (and (model-info-list-p models)
+                              (string-listp prefs)))
+           (ignore models prefs))
+  (prog2$ (er hard? 'find-matching-model "Raw Lisp definition not installed?")
+          nil))
+
+;; Select best model for completions
+;;
+;; Parameters:
+;;   models - Full model info list from llm-list-models-full
+;;   prefs  - List of preference strings to match (partial match on model ID)
+;;
+;; Returns: model-info-p or nil if no suitable model found
+;;
+;; Selection order:
+;; 1. First loaded completions model matching a preference (in pref order)
+;; 2. First loaded completions model (if no prefs or no match)
+;; 3. NIL if no loaded completions models
+(defun select-completions-model (models prefs)
+  (declare (xargs :guard (and (model-info-list-p models)
+                              (string-listp prefs)))
+           (ignore models prefs))
+  (prog2$ (er hard? 'select-completions-model "Raw Lisp definition not installed?")
+          nil))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Trust tag and raw Lisp inclusion for serialization functions

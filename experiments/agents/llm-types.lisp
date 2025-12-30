@@ -130,3 +130,122 @@
            (equal (chat-role-to-string (string-to-chat-role s)) s))
   :hints (("Goal" :in-theory (enable chat-role-to-string string-to-chat-role))))
 
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; Model Type
+;;
+;; Type of model: llm (chat/completion), vlm (vision), embeddings
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+(fty::deftagsum model-type
+  (:llm ())         ; Language model for chat/completion
+  (:vlm ())         ; Vision-language model
+  (:embeddings ())) ; Embedding model
+
+(define model-type-to-string ((mt model-type-p))
+  :returns (s stringp)
+  (model-type-case mt
+    :llm "llm"
+    :vlm "vlm"
+    :embeddings "embeddings"))
+
+(define string-to-model-type ((s stringp))
+  :returns (mt model-type-p)
+  (cond ((equal s "llm") (model-type-llm))
+        ((equal s "vlm") (model-type-vlm))
+        ((equal s "embeddings") (model-type-embeddings))
+        ;; Default to llm for unknown
+        (t (model-type-llm))))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; Model State
+;;
+;; Whether a model is loaded into memory or not
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+(fty::deftagsum model-state
+  (:loaded ())
+  (:not-loaded ()))
+
+(define model-state-to-string ((ms model-state-p))
+  :returns (s stringp)
+  (model-state-case ms
+    :loaded "loaded"
+    :not-loaded "not-loaded"))
+
+(define string-to-model-state ((s stringp))
+  :returns (ms model-state-p)
+  (if (equal s "loaded")
+      (model-state-loaded)
+    (model-state-not-loaded)))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; Model Info
+;;
+;; Full information about a model from LM Studio /api/v0/models
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+(fty::defprod model-info
+  ((id stringp "Model identifier" :default "")
+   (type model-type-p "Type: llm, vlm, or embeddings")
+   (load-state model-state-p "Whether model is loaded")
+   (publisher stringp "Model publisher" :default "")
+   (arch stringp "Model architecture" :default "")
+   (quantization stringp "Quantization level" :default "")
+   (max-context-length natp "Maximum context length" :default 0)
+   (loaded-context-length natp "Loaded context length (0 if not loaded)" :default 0))
+  :layout :list)
+
+;; Predicate helpers
+(define model-loaded-p ((m model-info-p))
+  :returns (loaded booleanp)
+  (let ((st (model-info->load-state m)))
+    (model-state-case st
+      :loaded t
+      :not-loaded nil)))
+
+(define model-is-llm-p ((m model-info-p))
+  :returns (is-llm booleanp)
+  (let ((tp (model-info->type m)))
+    (model-type-case tp
+      :llm t
+      :otherwise nil)))
+
+(define model-is-completions-p ((m model-info-p))
+  :returns (is-completions booleanp)
+  "True for models that can do chat/text completions (llm or vlm)"
+  (let ((tp (model-info->type m)))
+    (model-type-case tp
+      :llm t
+      :vlm t
+      :embeddings nil)))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; Model Info List
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+(fty::deflist model-info-list
+  :elt-type model-info-p
+  :true-listp t)
+
+;; Filter helpers - use simpler approach without return type proofs
+;; (ACL2 has trouble with recursive filter return types on FTY lists)
+(defun filter-loaded-models (models)
+  (declare (xargs :guard (model-info-list-p models)))
+  (cond ((endp models) nil)
+        ((model-loaded-p (model-info-fix (car models)))
+         (cons (model-info-fix (car models)) 
+               (filter-loaded-models (cdr models))))
+        (t (filter-loaded-models (cdr models)))))
+
+(defun filter-completions-models (models)
+  (declare (xargs :guard (model-info-list-p models)))
+  (cond ((endp models) nil)
+        ((model-is-completions-p (model-info-fix (car models)))
+         (cons (model-info-fix (car models)) 
+               (filter-completions-models (cdr models))))
+        (t (filter-completions-models (cdr models)))))
+
+(defun filter-loaded-completions-models (models)
+  (declare (xargs :guard (model-info-list-p models)))
+  (filter-loaded-models (filter-completions-models models)))
+
