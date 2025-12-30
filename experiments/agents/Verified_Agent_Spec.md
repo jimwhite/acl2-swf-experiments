@@ -620,17 +620,11 @@ Add structured knowledge tracking:
 
 #### Option 1: ACL2-MCP Interactive Session
 
-Start a persistent ACL2 session and test conversation management:
-
-```bash
-# In VS Code, use ACL2-MCP tools or start acl2 directly
-cd /workspaces/acl2-swf-experiments/experiments/agents
-acl2
-```
+Start a persistent ACL2 session using ACL2-MCP tools:
 
 ```lisp
-;; Load the verified agent
-(include-book "verified-agent")
+;; Start session and load the verified agent
+(include-book "/workspaces/acl2-swf-experiments/experiments/agents/verified-agent")
 
 ;; Create initial agent state
 (defconst *test-state*
@@ -650,7 +644,7 @@ acl2
 
 ;; Check messages
 (get-messages *state-with-conv*)
-;; => ((:SYSTEM . "You are a helpful assistant..."))
+;; => (((:SYSTEM) "You are a helpful assistant..."))
 
 ;; Add user message
 (defconst *state-with-user*
@@ -674,28 +668,28 @@ Test with actual LLM (requires LM Studio running on host):
 
 ```lisp
 ;; Load LLM client
-(include-book "llm-client")
+(include-book "/workspaces/acl2-swf-experiments/experiments/agents/llm-client")
 
 ;; Get available models
 (mv-let (err models state)
-  (llm-get-models state)
-  (if err
-      (cw "Error: ~s0~%" err)
-    (cw "Models: ~x0~%" (car models))))
+  (llm-list-models state)
+  (mv (if err
+          (cw "Error: ~s0~%" err)
+        (cw "Models: ~x0~%" models))
+      state))
 
-;; Create conversation
+;; Create conversation using FTY constructors
 (defconst *messages*
-  (list (make-chat-message :role :system 
-                           :content "You are a helpful assistant.")
-        (make-chat-message :role :user 
-                           :content "What is 2+2?")))
+  (list (chat-message (chat-role-system) "You are a helpful assistant.")
+        (chat-message (chat-role-user) "What is 2+2?")))
 
 ;; Call LLM (requires LM Studio at host.docker.internal:1234)
 (mv-let (err response state)
-  (llm-chat-completion "your-model-id" *messages* state)
-  (if err
-      (cw "Error: ~s0~%" err)
-    (cw "Response: ~s0~%" response)))
+  (llm-chat-completion "google/gemma-3-4b" *messages* state)
+  (mv (if err
+          (cw "Error: ~s0~%" err)
+        (cw "Response: ~s0~%" response))
+      state))
 ```
 
 #### Option 3: Python Test Harness
