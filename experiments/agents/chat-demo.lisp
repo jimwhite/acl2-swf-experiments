@@ -36,10 +36,8 @@
 ;; Model preferences in order - first match wins
 (defconst *model-prefs* '("qwen" "nemotron" "llama" "gemma"))
 
-#-skip-interactive
-(progn
-
 ;; Get full model info and select best loaded completions model
+#-skip-interactive
 (make-event
  (mv-let (err models state)
    (llm-list-models-full state)
@@ -53,6 +51,7 @@
     (mv nil '(value-triple :models-listed) state))))
 
 ;; Select the best model based on preferences
+#-skip-interactive
 (make-event
  (mv-let (err models state)
    (llm-list-models-full state)
@@ -68,8 +67,6 @@
           `(defconst *model-id* 
              ,(if selected (model-info->id selected) "no-model-found"))
           state)))))
-
-) ; end #-skip-interactive
 
 ;;;============================================================================
 ;;; Cell 3: Create initial agent state
@@ -97,16 +94,12 @@ Be concise but helpful in your responses.")
 (defconst *agent-v1*
   (init-agent-conversation *system-prompt* *initial-state*))
 
-#-skip-interactive
-(progn
-
 ;; Verify the conversation was initialized
+#-skip-interactive
 (defconst *check-init*
   (prog2$ (cw "Agent initialized. Messages: ~x0~%" 
               (len (get-messages *agent-v1*)))
           t))
-
-) ; end #-skip-interactive
 
 ;;;============================================================================
 ;;; Cell 5: Helper function to display conversation
@@ -137,18 +130,17 @@ Be concise but helpful in your responses.")
 ;;; Interactive conversation demo (skipped during certification)
 ;;;============================================================================
 
-#-skip-interactive
-(progn
-
 ;;;============================================================================
 ;;; Cell 6: User Turn 1 - Add a user message
 ;;;============================================================================
 
+#-skip-interactive
 (defconst *agent-v2*
   (add-user-msg "Hello! Can you explain what a formally verified agent is?" 
                 *agent-v1*))
 
 ;; Show the conversation so far
+#-skip-interactive
 (defconst *show-v2*
   (show-conversation *agent-v2*))
 
@@ -158,6 +150,7 @@ Be concise but helpful in your responses.")
 
 ;; This calls the LLM and adds the response to conversation
 ;; Requires LM Studio running!
+#-skip-interactive
 (make-event
  (mv-let (err response state)
    (llm-chat-completion *model-id* (get-messages *agent-v2*) state)
@@ -170,6 +163,7 @@ Be concise but helpful in your responses.")
                  state)))))
 
 ;; Show updated conversation
+#-skip-interactive
 (defconst *show-v3*
   (show-conversation *agent-v3*))
 
@@ -177,18 +171,21 @@ Be concise but helpful in your responses.")
 ;;; Cell 8: User Turn 2 - Follow-up question
 ;;;============================================================================
 
+#-skip-interactive
 (defconst *agent-v4*
   (add-user-msg "What properties have been proven about this agent?" 
                 *agent-v3*))
 
+#-skip-interactive
 (defconst *show-v4*
   (show-conversation *agent-v4*))
 
 ;;;============================================================================
 ;;; Cell 9: Get LLM response for Turn 2
-;;=============================================================================
+;;;============================================================================
 
 ;; Call LLM and add response to conversation
+#-skip-interactive
 (make-event
  (mv-let (err response state)
    (llm-chat-completion *model-id* (get-messages *agent-v4*) state)
@@ -200,18 +197,21 @@ Be concise but helpful in your responses.")
                         (add-assistant-msg ,response *agent-v4*)) 
                  state)))))
 
+#-skip-interactive
 (defconst *show-v5*
   (show-conversation *agent-v5*))
 
 ;;;============================================================================
 ;;; Cell 10: User Turn 3 - Get LLM response
-;;=============================================================================
+;;;============================================================================
 
+#-skip-interactive
 (defconst *agent-v6*
   (add-user-msg "That's impressive! How does the context management work?" 
                 *agent-v5*))
 
 ;; Call LLM for Turn 3
+#-skip-interactive
 (make-event
  (mv-let (err response state)
    (llm-chat-completion *model-id* (get-messages *agent-v6*) state)
@@ -223,13 +223,15 @@ Be concise but helpful in your responses.")
                         (add-assistant-msg ,response *agent-v6*)) 
                  state)))))
 
+#-skip-interactive
 (defconst *show-v7*
   (show-conversation *agent-v7*))
 
 ;;;============================================================================
 ;;; Cell 11: Check context token usage
-;;=============================================================================
+;;;============================================================================
 
+#-skip-interactive
 (defconst *context-check*
   (let* ((msgs (get-messages *agent-v7*))
          (char-len (messages-char-length msgs))
@@ -245,9 +247,10 @@ Be concise but helpful in your responses.")
 
 ;;;============================================================================
 ;;; Cell 12: Simulate a tool result (demonstrates add-tool-result)
-;;=============================================================================
+;;;============================================================================
 
 ;; Simulate calling a file-read tool
+#-skip-interactive
 (defconst *agent-with-tool*
   (add-tool-result 
     "File contents of verified-agent.lisp (first 500 chars):
@@ -258,17 +261,19 @@ Be concise but helpful in your responses.")
 ..." 
     *agent-v7*))
 
+#-skip-interactive
 (defconst *show-tool*
   (show-conversation *agent-with-tool*))
 
 ;;;============================================================================
 ;;; Cell 13: Interactive function for live chat
-;;=============================================================================
+;;;============================================================================
 
 ;; Use this function for interactive chatting
-;; Call: (chat "your message here" *current-agent-state*)
-;; Returns: new agent state (bind to new constant)
+;; Call: (chat-turn "your message" *agent* *model-id* state)
+;; Returns: (mv new-agent state)
 
+#-skip-interactive
 (defun chat-turn (user-msg agent-st model-id state)
   "Execute one chat turn: add user message, call LLM, add response"
   (declare (xargs :mode :program :stobjs state))
@@ -287,6 +292,7 @@ Be concise but helpful in your responses.")
 ;;;============================================================================
 
 ;; Create a tool spec for demonstration
+#-skip-interactive
 (defconst *read-file-tool*
   (make-tool-spec
     :name 'read-file
@@ -296,12 +302,14 @@ Be concise but helpful in your responses.")
     :time-cost 5))
 
 ;; Check if we can invoke this tool
+#-skip-interactive
 (defconst *can-read-file*
   (prog2$ (cw "~%Can invoke read-file tool: ~x0~%" 
               (can-invoke-tool-p *read-file-tool* *agent-v7*))
           (can-invoke-tool-p *read-file-tool* *agent-v7*)))
 
 ;; Simulate a ReAct step with conversation
+#-skip-interactive
 (defconst *agent-after-react*
   (if (and (not (must-respond-p *agent-v7*))
            (can-invoke-tool-p *read-file-tool* *agent-v7*))
@@ -313,6 +321,7 @@ Be concise but helpful in your responses.")
         *agent-v7*)
     *agent-v7*))
 
+#-skip-interactive
 (defconst *show-react*
   (prog2$ (cw "~%After ReAct step:~%")
     (prog2$ (cw "  Step counter: ~x0~%" 
@@ -326,6 +335,7 @@ Be concise but helpful in your responses.")
 ;;; Summary
 ;;;============================================================================
 
+#-skip-interactive
 (defconst *demo-complete*
   (prog2$ (cw "~%~%========================================~%")
     (prog2$ (cw "Chat Demo Complete!~%")
@@ -338,5 +348,3 @@ Be concise but helpful in your responses.")
                   (prog2$ (cw "  5. ReAct step with conversation~%")
                     (prog2$ (cw "  6. State preservation verification~%")
                       (cw "~%For live LLM chat, ensure LM Studio is running at:~%  http://host.docker.internal:1234~%"))))))))))))
-
-) ; end #-skip-interactive
