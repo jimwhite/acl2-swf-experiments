@@ -18,7 +18,8 @@
 
 (include-book "centaur/fty/top" :dir :system)
 (include-book "std/util/define" :dir :system)
-(include-book "llm-types")  ; chat-message-list-p, model-info-p
+(include-book "llm-types")        ; chat-message-list-p, model-info-p
+(include-book "context-manager")  ; add-message, truncate-to-fit, etc.
 
 ;;;============================================================================
 ;;; Part 2: Error Types
@@ -190,6 +191,120 @@
   :returns (new-st agent-state-p)
   (change-agent-state st :error-state err))
 
+;; ------------------------------
+;; Conversation State Functions
+;; ------------------------------
+
+;; Initialize conversation with system prompt in agent state
+(define init-agent-conversation ((system-prompt stringp) (st agent-state-p))
+  :returns (new-st agent-state-p)
+  (b* ((max-ctx (agent-state->max-context-tokens st))
+       (init-msgs (init-conversation system-prompt max-ctx)))
+    (change-agent-state st
+      :system-prompt system-prompt
+      :messages init-msgs)))
+
+;; Add user message to conversation
+(define add-user-msg ((content stringp) (st agent-state-p))
+  :returns (new-st agent-state-p)
+  (b* ((max-ctx (agent-state->max-context-tokens st))
+       (old-msgs (agent-state->messages st))
+       (new-msgs (add-user-message content old-msgs max-ctx)))
+    (change-agent-state st :messages new-msgs)))
+
+;; Add assistant message to conversation
+(define add-assistant-msg ((content stringp) (st agent-state-p))
+  :returns (new-st agent-state-p)
+  (b* ((max-ctx (agent-state->max-context-tokens st))
+       (old-msgs (agent-state->messages st))
+       (new-msgs (add-assistant-message content old-msgs max-ctx)))
+    (change-agent-state st :messages new-msgs)))
+
+;; Add tool result to conversation (with output truncation)
+(define add-tool-result ((content stringp) (st agent-state-p))
+  :returns (new-st agent-state-p)
+  (b* ((max-ctx (agent-state->max-context-tokens st))
+       (old-msgs (agent-state->messages st))
+       ;; Pass t for truncate-output-p to truncate long tool outputs
+       (new-msgs (add-tool-message content old-msgs max-ctx t)))
+    (change-agent-state st :messages new-msgs)))
+
+;; Get messages for LLM call
+(define get-messages ((st agent-state-p))
+  :returns (msgs chat-message-list-p)
+  (agent-state->messages st))
+
+;; Check if conversation has room for more messages
+(define conversation-has-room-p ((st agent-state-p))
+  :returns (result booleanp)
+  (b* ((max-ctx (agent-state->max-context-tokens st))
+       (current-msgs (agent-state->messages st)))
+    (messages-fit-p current-msgs max-ctx)))
+
+;; ------------------------------
+;; Conversation Preservation Lemmas
+;; Adding messages only changes :messages, preserving other state
+;; ------------------------------
+
+;; Helper to prove that conversation functions preserve must-respond-p fields
+(defthm add-assistant-msg-preserves-done
+  (equal (agent-state->done (add-assistant-msg content st))
+         (agent-state->done st))
+  :hints (("Goal" :in-theory (enable add-assistant-msg))))
+
+(defthm add-assistant-msg-preserves-error-state
+  (equal (agent-state->error-state (add-assistant-msg content st))
+         (agent-state->error-state st))
+  :hints (("Goal" :in-theory (enable add-assistant-msg))))
+
+(defthm add-assistant-msg-preserves-step-counter
+  (equal (agent-state->step-counter (add-assistant-msg content st))
+         (agent-state->step-counter st))
+  :hints (("Goal" :in-theory (enable add-assistant-msg))))
+
+(defthm add-assistant-msg-preserves-max-steps
+  (equal (agent-state->max-steps (add-assistant-msg content st))
+         (agent-state->max-steps st))
+  :hints (("Goal" :in-theory (enable add-assistant-msg))))
+
+(defthm add-assistant-msg-preserves-token-budget
+  (equal (agent-state->token-budget (add-assistant-msg content st))
+         (agent-state->token-budget st))
+  :hints (("Goal" :in-theory (enable add-assistant-msg))))
+
+(defthm add-assistant-msg-preserves-time-budget
+  (equal (agent-state->time-budget (add-assistant-msg content st))
+         (agent-state->time-budget st))
+  :hints (("Goal" :in-theory (enable add-assistant-msg))))
+
+;; Derived theorem: add-assistant-msg preserves has-error-p
+(defthm add-assistant-msg-preserves-has-error-p
+  (equal (has-error-p (add-assistant-msg content st))
+         (has-error-p st))
+  :hints (("Goal" :in-theory (enable has-error-p))))
+
+;; Key theorem: add-assistant-msg preserves must-respond-p
+(defthm add-assistant-msg-preserves-must-respond-p
+  (equal (must-respond-p (add-assistant-msg content st))
+         (must-respond-p st))
+  :hints (("Goal" :in-theory (enable must-respond-p))))
+
+;; Same lemmas for add-tool-result
+(defthm add-tool-result-preserves-done
+  (equal (agent-state->done (add-tool-result content st))
+         (agent-state->done st))
+  :hints (("Goal" :in-theory (enable add-tool-result))))
+
+(defthm add-tool-result-preserves-error-state
+  (equal (agent-state->error-state (add-tool-result content st))
+         (agent-state->error-state st))
+  :hints (("Goal" :in-theory (enable add-tool-result))))
+
+(defthm add-tool-result-preserves-has-error-p
+  (equal (has-error-p (add-tool-result content st))
+         (has-error-p st))
+  :hints (("Goal" :in-theory (enable has-error-p))))
+
 ;;;============================================================================
 ;;; Part 9: External Tool Oracle (Encapsulated)
 ;;;============================================================================
@@ -233,6 +348,27 @@
       :no-action
       st))
   :guard-hints (("Goal" :in-theory (enable must-respond-p))))
+
+;; Execute ReAct step with conversation management
+;; Takes assistant's thought+action and tool result, updates both state and conversation
+(define react-step-with-conversation ((action agent-action-p)
+                                      (tool tool-spec-p)
+                                      (assistant-msg stringp)
+                                      (tool-result stringp)
+                                      (st agent-state-p))
+  :returns (new-st agent-state-p)
+  :guard (not (must-respond-p st))
+  (b* (;; First add assistant's response to conversation
+       (st (add-assistant-msg assistant-msg st))
+       ;; Execute the state transition
+       (st (react-step action tool st))
+       ;; For tool calls, add the tool result if no error
+       (st (if (and (agent-action-case action :tool-call)
+                    (not (has-error-p st)))
+               (add-tool-result tool-result st)
+             st)))
+    st)
+  :guard-hints (("Goal" :in-theory (enable must-respond-p react-step))))
 
 ;;;============================================================================
 ;;; Part 11: Core Safety Theorems
@@ -326,3 +462,29 @@
                 (tool-spec-p tool)
                 (agent-state-p st))
            (agent-state-p (react-step action tool st))))
+;; Conversation state transition preservations
+
+(defthm init-agent-conversation-preserves-agent-state
+  (implies (and (stringp system-prompt) (agent-state-p st))
+           (agent-state-p (init-agent-conversation system-prompt st))))
+
+(defthm add-user-msg-preserves-agent-state
+  (implies (and (stringp content) (agent-state-p st))
+           (agent-state-p (add-user-msg content st))))
+
+(defthm add-assistant-msg-preserves-agent-state
+  (implies (and (stringp content) (agent-state-p st))
+           (agent-state-p (add-assistant-msg content st))))
+
+(defthm add-tool-result-preserves-agent-state
+  (implies (and (stringp content) (agent-state-p st))
+           (agent-state-p (add-tool-result content st))))
+
+(defthm react-step-with-conversation-preserves-agent-state
+  (implies (and (agent-action-p action)
+                (tool-spec-p tool)
+                (stringp assistant-msg)
+                (stringp tool-result)
+                (agent-state-p st))
+           (agent-state-p (react-step-with-conversation 
+                           action tool assistant-msg tool-result st))))

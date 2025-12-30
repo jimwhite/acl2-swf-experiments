@@ -1,6 +1,6 @@
 # Verified Agent Specification
 
-**Version:** 1.0  
+**Version:** 1.3  
 **Date:** December 30, 2025  
 **Implementation:** [verified-agent.lisp](../../experiments/agents/verified-agent.lisp)
 
@@ -23,21 +23,27 @@ A formally verified ReAct agent implemented in ACL2 with FTY types. The agent's 
 ┌─────────────────────────────────────────────────────────────────┐
 │                    Verified Agent (ACL2)                        │
 ├─────────────────────────────────────────────────────────────────┤
-│  Layer 4: Theorems                                              │
-│  ├── permission-safety                                          │
-│  ├── budget-bounds-after-deduct                                 │
-│  ├── termination-by-max-steps                                   │
-│  ├── continue-respond-partition                                 │
-│  └── state preservation theorems                                │
+│  Layer 5: Theorems                                              │
+│  ├── permission-safety, budget-bounds-after-deduct              │
+│  ├── termination-by-max-steps, continue-respond-partition       │
+│  ├── conversation preservation theorems                         │
+│  └── truncate-preserves-system-prompt                           │
 ├─────────────────────────────────────────────────────────────────┤
-│  Layer 3: ReAct Loop                                            │
+│  Layer 4: ReAct Loop with Conversation                          │
 │  ├── react-step (single iteration)                              │
+│  ├── react-step-with-conversation (state + messages)            │
 │  └── remaining-steps (termination measure)                      │
 ├─────────────────────────────────────────────────────────────────┤
-│  Layer 2: State Transitions                                     │
+│  Layer 3: State Transitions                                     │
 │  ├── increment-step, deduct-tool-cost                           │
-│  ├── update-satisfaction, mark-done                             │
-│  └── set-error                                                  │
+│  ├── update-satisfaction, mark-done, set-error                  │
+│  └── add-user-msg, add-assistant-msg, add-tool-result           │
+├─────────────────────────────────────────────────────────────────┤
+│  Layer 2: Context Management (context-manager.lisp)             │
+│  ├── Token estimation (4 chars/token conservative)              │
+│  ├── truncate-to-fit (sliding window, preserves system)         │
+│  ├── truncate-output (head+tail for tool results)               │
+│  └── add-message with automatic truncation                      │
 ├─────────────────────────────────────────────────────────────────┤
 │  Layer 1: Pure Decision Functions                               │
 │  ├── can-invoke-tool-p (permission + budget)                    │
@@ -45,8 +51,8 @@ A formally verified ReAct agent implemented in ACL2 with FTY types. The agent's 
 │  └── should-continue-p (has budget, not satisfied)              │
 ├─────────────────────────────────────────────────────────────────┤
 │  Layer 0: FTY Types                                             │
-│  ├── agent-state, tool-spec, agent-action                       │
-│  └── error-kind                                                 │
+│  ├── agent-state, tool-spec, agent-action, error-kind           │
+│  └── chat-role, chat-message, chat-message-list                 │
 └─────────────────────────────────────────────────────────────────┘
                               │
                               │ encapsulate (external-tool-call)
@@ -103,6 +109,9 @@ Core agent state tracking resources, permissions, and status.
 | `satisfaction` | `natp` | 0 | Goal satisfaction (0-100) |
 | `done` | `booleanp` | nil | Agent has completed |
 | `error-state` | `error-kind-p` | `(:none)` | Current error state |
+| `messages` | `chat-message-list-p` | nil | Conversation history |
+| `max-context-tokens` | `natp` | 8000 | Context window limit |
+| `system-prompt` | `stringp` | "" | System prompt text |
 
 ### agent-action (deftagsum)
 
@@ -178,6 +187,27 @@ All state transitions preserve `agent-state-p`:
 - `mark-done-preserves-agent-state`
 - `set-error-preserves-agent-state`
 - `react-step-preserves-agent-state`
+- `init-agent-conversation-preserves-agent-state`
+- `add-user-msg-preserves-agent-state`
+- `add-assistant-msg-preserves-agent-state`
+- `add-tool-result-preserves-agent-state`
+- `react-step-with-conversation-preserves-agent-state`
+
+### Conversation Preservation Theorems
+
+Adding messages only changes the `:messages` field, preserving control flow:
+- `add-assistant-msg-preserves-must-respond-p` — Conversation doesn't affect termination
+- `add-assistant-msg-preserves-has-error-p` — Error state unchanged
+- `add-tool-result-preserves-has-error-p` — Tool results don't affect errors
+- All field-level preservation: `done`, `error-state`, `step-counter`, `max-steps`, `token-budget`, `time-budget`
+
+### Context Management Theorems (context-manager.lisp)
+
+| Theorem | Statement | Significance |
+|---------|-----------|---------------|
+| `truncate-preserves-system-prompt` | System message always preserved after truncation | LLM always gets instructions |
+| `truncate-to-fit-length-bound` | Truncated ≤ original length | Truncation reduces, never grows |
+| `chat-message-list-p-of-append` | Append preserves message list type | Type safety for message building |
 
 ---
 
@@ -334,9 +364,143 @@ experiments/agents/
 
 ---
 
-## MCP Integration (Phase 1.6 - Planned)
+## Context Management (Phase 1.6)
 
-After LLM HTTP integration is working, add MCP tool calls for Oxigraph and Qdrant using the same HTTP/JSON-RPC pattern.
+### Overview
+
+Verified context length management following mini-swe-agent's pattern but with ACL2 formal verification. Ensures conversation history fits in model context windows with system prompt always preserved.
+
+### Design Principles (from mini-swe-agent)
+
+1. **Simple list-based storage** — Messages stored as `chat-message-list`
+2. **Sliding window truncation** — Drop oldest non-system messages when context full
+3. **System prompt preservation** — First message (system) always kept
+4. **Output truncation** — Large tool outputs use head+tail strategy
+5. **Conservative estimation** — 4 chars/token avoids context overflow
+
+### Constants
+
+| Constant | Value | Purpose |
+|----------|-------|---------|
+| `*chars-per-token*` | 4 | Conservative token estimation |
+| `*context-safety-margin*` | 500 | Reserved tokens for response |
+| `*output-head-chars*` | 5000 | Tool output head portion |
+| `*output-tail-chars*` | 5000 | Tool output tail portion |
+| `*output-max-chars*` | 10000 | Total output truncation limit |
+
+### Core Functions
+
+#### Token Estimation
+
+```lisp
+(define estimate-tokens ((chars natp))
+  :returns (tokens natp)
+  ;; Ceiling division: (chars + 3) / 4
+  (nfix (truncate (+ chars 3) 4)))
+
+(define messages-token-estimate ((msgs chat-message-list-p))
+  :returns (tokens natp)
+  (estimate-tokens (messages-char-length msgs)))
+```
+
+#### Context Fitting
+
+```lisp
+(define messages-fit-p ((msgs chat-message-list-p) (max-tokens natp))
+  :returns (result booleanp)
+  (b* ((used (messages-token-estimate msgs))
+       (available (nfix (- max-tokens *context-safety-margin*))))
+    (<= used available)))
+```
+
+#### Sliding Window Truncation
+
+```lisp
+(define truncate-to-fit ((msgs chat-message-list-p) (max-tokens natp))
+  :returns (truncated chat-message-list-p)
+  ;; Preserves first message (system prompt)
+  ;; Drops oldest non-system messages until fit
+  (b* ((sys-msg (extract-system-message msgs))
+       (rest (non-system-messages msgs))
+       (trimmed (drop-oldest-until-fit rest max-tokens sys-msg)))
+    (if sys-msg
+        (cons sys-msg trimmed)
+      trimmed)))
+```
+
+#### Output Truncation (mini-swe-agent pattern)
+
+```lisp
+(define truncate-output ((output stringp) (max-chars natp))
+  :returns (truncated stringp)
+  ;; Head + "..." + tail when output exceeds max
+  (b* ((len (length output)))
+    (if (<= len max-chars)
+        output
+      (b* ((head-size (nfix (truncate max-chars 2)))
+           (tail-size (nfix (- (nfix (- max-chars head-size)) 5)))
+           (head (subseq output 0 head-size))
+           (tail (subseq output (nfix (- len tail-size)) len)))
+        (concatenate 'string head "
+... output truncated ...
+" tail)))))
+```
+
+### Agent-Level Conversation Functions
+
+```lisp
+;; Initialize conversation with system prompt
+(define init-agent-conversation ((system-prompt stringp) (st agent-state-p))
+  :returns (new-st agent-state-p))
+
+;; Add messages with auto-truncation
+(define add-user-msg ((content stringp) (st agent-state-p))
+  :returns (new-st agent-state-p))
+
+(define add-assistant-msg ((content stringp) (st agent-state-p))
+  :returns (new-st agent-state-p))
+
+(define add-tool-result ((content stringp) (st agent-state-p))
+  :returns (new-st agent-state-p))  ; auto-truncates output
+
+;; ReAct step with conversation management
+(define react-step-with-conversation
+  ((action agent-action-p)
+   (tool tool-spec-p)
+   (assistant-msg stringp)    ; LLM response
+   (tool-result stringp)      ; Tool output
+   (st agent-state-p))
+  :returns (new-st agent-state-p)
+  :guard (not (must-respond-p st)))
+```
+
+### Key Theorems
+
+```lisp
+;; System prompt always preserved during truncation
+(defthm truncate-preserves-system-prompt
+  (implies (and (chat-message-list-p msgs)
+                (natp max-tokens)
+                (first-is-system-p msgs))
+           (first-is-system-p (truncate-to-fit msgs max-tokens))))
+
+;; Truncation never increases message count
+(defthm truncate-to-fit-length-bound
+  (implies (chat-message-list-p msgs)
+           (<= (len (truncate-to-fit msgs max-tokens))
+               (len msgs))))
+
+;; Conversation changes don't affect agent control flow
+(defthm add-assistant-msg-preserves-must-respond-p
+  (equal (must-respond-p (add-assistant-msg content st))
+         (must-respond-p st)))
+```
+
+---
+
+## MCP Integration (Phase 1.7 - Planned)
+
+After context management is working, add MCP tool calls for Oxigraph and Qdrant using the same HTTP/JSON-RPC pattern.
 
 ---
 
@@ -447,11 +611,121 @@ Add structured knowledge tracking:
 ## Testing Strategy
 
 ### ACL2 Level
-1. **Certification** — `make experiments/agents/verified-agent.cert`
+
+1. **Certification** — `cert.pl verified-agent.lisp` or `make experiments/agents/verified-agent.cert`
 2. **Interactive testing** — ACL2 MCP server for REPL-driven exploration
 3. **Theorem coverage** — Ensure key properties have proofs
 
+### Testing Chat with the Verified Agent
+
+#### Option 1: ACL2-MCP Interactive Session
+
+Start a persistent ACL2 session and test conversation management:
+
+```bash
+# In VS Code, use ACL2-MCP tools or start acl2 directly
+cd /workspaces/acl2-swf-experiments/experiments/agents
+acl2
+```
+
+```lisp
+;; Load the verified agent
+(include-book "verified-agent")
+
+;; Create initial agent state
+(defconst *test-state*
+  (make-agent-state 
+    :max-steps 10
+    :token-budget 5000
+    :time-budget 300
+    :file-access 1      ; read access
+    :execute-allowed nil
+    :max-context-tokens 4000))
+
+;; Initialize conversation
+(defconst *state-with-conv*
+  (init-agent-conversation 
+    "You are a helpful assistant that follows user instructions."
+    *test-state*))
+
+;; Check messages
+(get-messages *state-with-conv*)
+;; => ((:SYSTEM . "You are a helpful assistant..."))
+
+;; Add user message
+(defconst *state-with-user*
+  (add-user-msg "Hello, what can you help me with?" *state-with-conv*))
+
+;; Simulate assistant response
+(defconst *state-with-response*
+  (add-assistant-msg "I can help with code analysis and questions!" *state-with-user*))
+
+;; Check conversation preserved must-respond-p
+(must-respond-p *state-with-response*)  ; => NIL (can continue)
+(should-continue-p *state-with-response*)  ; => T (should continue)
+
+;; Test context truncation
+(messages-fit-p (get-messages *state-with-response*) 4000)  ; => T
+```
+
+#### Option 2: Full LLM Integration Test
+
+Test with actual LLM (requires LM Studio running on host):
+
+```lisp
+;; Load LLM client
+(include-book "llm-client")
+
+;; Get available models
+(mv-let (err models state)
+  (llm-get-models state)
+  (if err
+      (cw "Error: ~s0~%" err)
+    (cw "Models: ~x0~%" (car models))))
+
+;; Create conversation
+(defconst *messages*
+  (list (make-chat-message :role :system 
+                           :content "You are a helpful assistant.")
+        (make-chat-message :role :user 
+                           :content "What is 2+2?")))
+
+;; Call LLM (requires LM Studio at host.docker.internal:1234)
+(mv-let (err response state)
+  (llm-chat-completion "your-model-id" *messages* state)
+  (if err
+      (cw "Error: ~s0~%" err)
+    (cw "Response: ~s0~%" response)))
+```
+
+#### Option 3: Python Test Harness
+
+Create a Python wrapper for end-to-end testing:
+
+```python
+# test_verified_agent.py
+import subprocess
+import json
+
+def test_context_truncation():
+    """Test that context management preserves system prompt."""
+    # Create long conversation that needs truncation
+    messages = [{"role": "system", "content": "System prompt"}]
+    for i in range(100):
+        messages.append({"role": "user", "content": f"Message {i}" * 100})
+        messages.append({"role": "assistant", "content": f"Response {i}" * 100})
+    
+    # Verify in ACL2 session that truncation preserves system
+    # (Implementation: shell out to acl2 or use ACL2-MCP)
+    pass
+
+def test_conversation_flow():
+    """Test full ReAct conversation flow."""
+    pass
+```
+
 ### Runtime Level
+
 1. **Property-based testing** — Generate random states, verify invariants
 2. **Integration tests** — End-to-end with mock MCP tools
 3. **Constraint validation** — Compare ACL2 decisions with Z3 decisions
@@ -462,13 +736,17 @@ Add structured knowledge tracking:
 
 ```
 experiments/agents/
-├── verified-agent.lisp      # Main implementation
+├── verified-agent.lisp      # Main agent implementation (v1.3)
 ├── verified-agent.acl2      # Certification setup
 ├── verified-agent.cert      # Generated certificate
+├── context-manager.lisp     # Context length management (v1.3)
+├── context-manager.cert     # Generated certificate
 ├── llm-types.lisp           # FTY message types (v1.1)
+├── llm-types.cert            
 ├── llm-client.lisp          # HTTP client wrapper (v1.1)
 ├── llm-client-raw.lsp       # JSON serialization (v1.1)
 ├── llm-client.acl2          # Cert setup with ttags (v1.1)
+├── http-json.lisp           # HTTP POST utilities
 └── (future)
     ├── verified-agent-v2.lisp   # With facts/goals
     ├── mcp-client.lisp          # MCP JSON-RPC client
@@ -580,6 +858,78 @@ Common locations:
 - `arithmetic-5/` — Numeric properties
 - `centaur/fty/` — FTY-related lemmas
 
+### Learnings from Context Manager Implementation
+
+#### 1. FTY Case Macros Require Variables
+
+FTY-generated case macros (`chat-role-case`, `error-kind-case`, etc.) require a variable, not an expression:
+
+```lisp
+;; WRONG - causes macro expansion error
+(chat-role-case (chat-message->role msg)
+  :system ...)
+
+;; CORRECT - bind to variable first
+(let ((role (chat-message->role msg)))
+  (chat-role-case role
+    :system ...))
+```
+
+#### 2. ACL2 Binary Minus Only Takes 2 Arguments
+
+```lisp
+;; WRONG - ACL2's binary-* minus macro only takes 2 args
+(- a b c)
+
+;; CORRECT - nest the calls
+(- (- a b) c)
+```
+
+#### 3. Explicit Fixes for FTY Return Types
+
+When FTY functions are used in return positions, sometimes you need explicit fix wrappers:
+
+```lisp
+(define extract-system-message ((msgs chat-message-list-p))
+  :returns (msg (or (chat-message-p msg) (not msg)))
+  (b* ((msgs (chat-message-list-fix msgs)))
+    (if (and (consp msgs)
+             (let ((role (chat-message->role (car msgs))))
+               (chat-role-case role :system t :otherwise nil)))
+        (chat-message-fix (car msgs))  ; <- explicit fix for return type
+      nil)))
+```
+
+#### 4. Prove Preservation Lemmas Before Guard Verification
+
+When calling a function with a guard that checks conditions on input, and your input is the result of another function, prove that the intermediate function preserves those conditions:
+
+```lisp
+;; add-assistant-msg changes :messages but react-step needs (not (must-respond-p st))
+;; Prove this first:
+(defthm add-assistant-msg-preserves-must-respond-p
+  (equal (must-respond-p (add-assistant-msg content st))
+         (must-respond-p st)))
+
+;; Now this function's guards verify:
+(define react-step-with-conversation (... (st agent-state-p))
+  :guard (not (must-respond-p st))
+  (b* ((st (add-assistant-msg msg st))  ; preserves guard condition
+       (st (react-step action tool st))) ; guard satisfied
+    ...))
+```
+
+#### 5. Use `nfix` and `truncate` Instead of `ceiling`
+
+ACL2's `ceiling` can cause proof difficulties with natural number bounds. Use `truncate` with adjustment:
+
+```lisp
+;; Conservative ceiling division: chars/4 rounded up
+(define estimate-tokens ((chars natp))
+  :returns (tokens natp)
+  (nfix (truncate (+ chars 3) 4)))  ; (n+3)/4 = ceiling(n/4) for n≥0
+```
+
 ---
 
 ## References
@@ -593,6 +943,24 @@ Common locations:
 ---
 
 ## Changelog
+
+### v1.3 (2025-12-30)
+- **Context Management (Phase 1.6)** — Verified conversation history with context length management
+  - New `context-manager.lisp` book with sliding window truncation
+  - Token estimation (4 chars/token conservative)
+  - System prompt always preserved (`truncate-preserves-system-prompt` theorem)
+  - Output truncation following mini-swe-agent pattern (head+tail)
+  - Extended `agent-state` with `messages`, `max-context-tokens`, `system-prompt`
+  - New conversation functions: `init-agent-conversation`, `add-user-msg`, `add-assistant-msg`, `add-tool-result`
+  - `react-step-with-conversation` for integrated ReAct + conversation management
+  - Conversation preservation theorems (adding messages doesn't affect control flow)
+- Updated architecture diagram with context management layer
+- Added comprehensive testing instructions for chat interaction
+- **Learnings documented:**
+  - FTY case macros require variables, not expressions (use `let` binding)
+  - ACL2's binary `-` only takes 2 args (nest for 3+)
+  - Need explicit `chat-message-list-fix` wrappers for return types
+  - Prove preservation lemmas before using functions in guards
 
 ### v1.2 (2025-12-30)
 - Added ACL2 Development Patterns section
