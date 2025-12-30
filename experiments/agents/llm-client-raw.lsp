@@ -9,11 +9,14 @@
 ; Author: AI Assistant with human guidance
 ;
 ; This file provides raw Lisp implementations for JSON serialization
-; and parsing functions used by the LLM client.
+; and response parsing using Kestrel's json-parser library.
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 (in-package "ACL2")
+
+;; Note: The Kestrel JSON parser is loaded via include-book in llm-client.lisp
+;; which makes parse-string-as-json available here.
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; JSON String Escaping
@@ -73,7 +76,7 @@
           (serialize-chat-messages messages)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;; JSON Parsing (Simple extraction for OpenAI response format)
+;; JSON Response Parsing (using Kestrel json-parser)
 ;;
 ;; OpenAI response format:
 ;; {
@@ -86,59 +89,46 @@
 ;;     }
 ;;   ]
 ;; }
+;;
+;; Parsed structure from kestrel/json-parser:
+;; (:OBJECT (("choices" :ARRAY ((:OBJECT (("message" :OBJECT (...))))))))
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
-(defun find-json-string-value (json key)
-  "Simple extraction of string value for KEY from JSON.
-   Looks for \"key\":\"value\" or \"key\": \"value\" patterns.
-   Returns the value string or NIL if not found."
-  (let* ((key-pattern (format nil "\"~A\"" key))
-         (key-pos (search key-pattern json)))
-    (when key-pos
-      (let* ((after-key (+ key-pos (length key-pattern)))
-             ;; Skip whitespace and colon
-             (colon-pos (position #\: json :start after-key)))
-        (when colon-pos
-          (let ((quote-start (position #\" json :start (1+ colon-pos))))
-            (when quote-start
-              (let ((value-start (1+ quote-start)))
-                ;; Find closing quote (handling escapes)
-                (let ((value-end nil)
-                      (i value-start)
-                      (len (length json)))
-                  (loop while (and (< i len) (null value-end)) do
-                    (let ((c (char json i)))
-                      (cond
-                        ((char= c #\\) (incf i 2))  ; skip escaped char
-                        ((char= c #\") (setf value-end i))
-                        (t (incf i)))))
-                  (when value-end
-                    ;; Unescape the value
-                    (let ((raw (subseq json value-start value-end)))
-                      ;; Simple unescaping
-                      (with-output-to-string (out)
-                        (let ((i 0) (len (length raw)))
-                          (loop while (< i len) do
-                            (let ((c (char raw i)))
-                              (if (and (char= c #\\) (< (1+ i) len))
-                                  (let ((next (char raw (1+ i))))
-                                    (case next
-                                      (#\" (write-char #\" out))
-                                      (#\\ (write-char #\\ out))
-                                      (#\n (write-char #\Newline out))
-                                      (#\r (write-char #\Return out))
-                                      (#\t (write-char #\Tab out))
-                                      (otherwise 
-                                       (write-char c out)
-                                       (write-char next out)))
-                                    (incf i 2))
-                                  (progn
-                                    (write-char c out)
-                                    (incf i))))))))))))))))))
+(defun extract-chat-content (parsed)
+  "Extract assistant content from parsed OpenAI chat response structure."
+  (and (consp parsed)
+       (eq (car parsed) :object)
+       (consp (cdr parsed))
+       (let* ((pairs (cadr parsed))
+              (choices-entry (assoc "choices" pairs :test #'equal)))
+         (and choices-entry
+              (consp (cdr choices-entry))
+              (eq (cadr choices-entry) :array)
+              (consp (cddr choices-entry))
+              (consp (caddr choices-entry))
+              (let ((first-choice (car (caddr choices-entry))))
+                (and (consp first-choice)
+                     (eq (car first-choice) :object)
+                     (consp (cdr first-choice))
+                     (let* ((choice-pairs (cadr first-choice))
+                            (message-entry (assoc "message" choice-pairs :test #'equal)))
+                       (and message-entry
+                            (consp (cdr message-entry))
+                            (eq (cadr message-entry) :object)
+                            (consp (cddr message-entry))
+                            (let* ((msg-pairs (caddr message-entry))
+                                   (content-entry (assoc "content" msg-pairs :test #'equal)))
+                              (and content-entry
+                                   (stringp (cdr content-entry))
+                                   (cdr content-entry)))))))))))
 
 (defun parse-chat-response (json)
   "Parse OpenAI chat completion response, extract assistant content.
+   Uses Kestrel json-parser for robust JSON handling.
    Returns the content string, or empty string on parse failure."
-  (or (find-json-string-value json "content")
-      ""))
+  (multiple-value-bind (err parsed)
+      (parse-string-as-json json)
+    (if err
+        ""
+        (or (extract-chat-content parsed) ""))))
 

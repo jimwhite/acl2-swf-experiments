@@ -16,6 +16,7 @@
 (include-book "llm-types")
 (include-book "http-json")
 (include-book "std/strings/explode-nonnegative-integer" :dir :system)
+(include-book "kestrel/json-parser/parse-json" :dir :system)
 ; (depends-on "llm-client-raw.lsp")
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -74,6 +75,7 @@
 ;; Parse chat completion response JSON, extract assistant message content
 ;; Input: json response string
 ;; Output: content string (empty on parse failure)
+;; Note: Implementation in llm-client-raw.lsp uses kestrel/json-parser
 (defun parse-chat-response (json)
   (declare (xargs :guard (stringp json))
            (ignore json))
