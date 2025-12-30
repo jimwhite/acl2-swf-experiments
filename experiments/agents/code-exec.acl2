@@ -1,0 +1,3 @@
+; cert-flags: ? t :ttags :all
+; Certification file for code-exec.lisp
+; Requires trust tags for acl2s-interface and include-raw
