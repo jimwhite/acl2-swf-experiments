@@ -28,6 +28,8 @@
 (include-book "/workspaces/acl2-swf-experiments/experiments/agents/verified-agent")
 (include-book "/workspaces/acl2-swf-experiments/experiments/agents/llm-client"
               :ttags ((:quicklisp) (:quicklisp.osicat) (:quicklisp.dexador) (:http-json) (:llm-client)))
+(include-book "/workspaces/acl2-swf-experiments/experiments/agents/mcp-client"
+              :ttags ((:quicklisp) (:quicklisp.dexador) (:http-json) (:mcp-client)))
 
 ;;;============================================================================
 ;;; Cell 2: Configuration - Auto-select best available model
@@ -78,7 +80,7 @@
     :token-budget 50000        ; Token budget for tool calls
     :time-budget 3600          ; 1 hour time budget
     :file-access 1             ; Read access to files
-    :execute-allowed nil       ; No code execution
+    :execute-allowed t         ; Code execution enabled!
     :max-context-tokens 8000   ; Context window size
     :satisfaction 0))          ; Starting satisfaction
 
@@ -87,9 +89,23 @@
 ;;;============================================================================
 
 (defconst *system-prompt*
-  "You are a helpful AI assistant running inside a formally verified agent framework built in ACL2. 
-You can engage in conversation and help with questions.
-Be concise but helpful in your responses.")
+  "You are a helpful AI assistant running inside a formally verified ReAct agent framework built in ACL2.
+
+You have access to ACL2 code execution. To run ACL2 code, put it in a fenced code block:
+
+```acl2
+(+ 1 2 3)
+```
+
+or:
+
+```lisp
+(defun factorial (n) (if (zp n) 1 (* n (factorial (1- n)))))
+```
+
+I will execute the code and show you the result. You can then continue reasoning or give a final answer.
+
+Be concise. Show your reasoning.")
 
 (defconst *agent-v1*
   (init-agent-conversation *system-prompt* *initial-state*))
@@ -269,23 +285,124 @@ Be concise but helpful in your responses.")
 ;;; Cell 13: Interactive function for live chat
 ;;;============================================================================
 
+;;;============================================================================
+;;; Code Execution Support
+;;;============================================================================
+
+;; Strip leading whitespace from character list
+#-skip-interactive
+(defun strip-leading-ws (lst)
+  (declare (xargs :mode :program))
+  (if (endp lst) nil
+    (if (member (car lst) '(#\Space #\Tab #\Newline #\Return))
+        (strip-leading-ws (cdr lst))
+      lst)))
+
+;; Trim whitespace from string
+#-skip-interactive
+(defun my-string-trim (str)
+  (declare (xargs :mode :program))
+  (let* ((chars (coerce str 'list))
+         (trimmed (strip-leading-ws chars))
+         (rev-trimmed (strip-leading-ws (reverse trimmed))))
+    (coerce (reverse rev-trimmed) 'string)))
+
+;; Extract first ```acl2 or ```lisp code block from text
+#-skip-interactive
+(defun extract-code-block (response)
+  (declare (xargs :mode :program))
+  (let* ((acl2-start (search "```acl2" response))
+         (lisp-start (search "```lisp" response))
+         (start-marker (cond ((and acl2-start lisp-start)
+                              (if (< acl2-start lisp-start) "```acl2" "```lisp"))
+                             (acl2-start "```acl2")
+                             (lisp-start "```lisp")
+                             (t nil)))
+         (start-pos (cond ((and acl2-start lisp-start)
+                           (min acl2-start lisp-start))
+                          (acl2-start acl2-start)
+                          (lisp-start lisp-start)
+                          (t nil))))
+    (if (not start-pos)
+        (mv nil "")
+      (let* ((content-start (+ start-pos (length start-marker)))
+             (newline-pos (search (coerce '(#\Newline) 'string)
+                                  (subseq response content-start (length response))))
+             (code-start (if newline-pos (+ content-start newline-pos 1) content-start))
+             (rest (subseq response code-start (length response)))
+             (end-pos (search "```" rest)))
+        (if (not end-pos)
+            (mv nil "")
+          (mv t (my-string-trim (subseq rest 0 end-pos))))))))
+
+;; Execute ACL2 code via MCP, auto-detecting form type
+#-skip-interactive
+(defun execute-acl2-code (code mcp-conn state)
+  (declare (xargs :mode :program :stobjs state))
+  (if (not (mcp-connection-p mcp-conn))
+      (mv "No MCP connection" "" state)
+    (let* ((trimmed (my-string-trim code))
+           (is-defun (and (>= (length trimmed) 6)
+                          (equal (subseq trimmed 0 6) "(defun")))
+           (is-defthm (and (>= (length trimmed) 7)
+                           (equal (subseq trimmed 0 7) "(defthm")))
+           (is-thm (and (>= (length trimmed) 4)
+                        (equal (subseq trimmed 0 4) "(thm"))))
+      (cond (is-defun (mcp-acl2-admit mcp-conn code state))
+            ((or is-defthm is-thm) (mcp-acl2-prove mcp-conn code state))
+            (t (mcp-acl2-evaluate mcp-conn code state))))))
+
+;;;============================================================================
+;;; Cell 13: Interactive function for live chat
+;;;============================================================================
+
 ;; Use this function for interactive chatting
 ;; Call: (chat-turn "your message" *agent* *model-id* state)
 ;; Returns: (mv new-agent state)
 
+;; ReAct step: call LLM, check for code, execute if found, loop until done
 #-skip-interactive
-(defun chat-turn (user-msg agent-st model-id state)
-  "Execute one chat turn: add user message, call LLM, add response"
+(defun react-loop (agent-st model-id mcp-conn max-steps state)
+  "Execute ReAct loop: LLM -> extract code -> execute -> repeat until no code block"
+  (declare (xargs :mode :program :stobjs state))
+  (if (zp max-steps)
+      (prog2$ (cw "~%[Max steps reached]~%")
+              (mv agent-st state))
+    (mv-let (err response state)
+      (llm-chat-completion model-id (get-messages agent-st) state)
+      (if err
+          (prog2$ (cw "~%LLM Error: ~s0~%" err)
+                  (mv agent-st state))
+        (let ((agent-st (add-assistant-msg response agent-st)))
+          (prog2$ (cw "~%Assistant: ~s0~%" response)
+            (mv-let (found? code)
+              (extract-code-block response)
+              (if (not found?)
+                  ;; No code block - done with this turn
+                  (mv agent-st state)
+                ;; Execute code and continue
+                (prog2$ (cw "~%[Executing: ~s0]~%" code)
+                  (mv-let (exec-err result state)
+                    (execute-acl2-code code mcp-conn state)
+                    (let* ((tool-result (if exec-err
+                                            (concatenate 'string "Error: " exec-err)
+                                          result))
+                           ;; Truncate long results for display
+                           (display-result (if (> (length tool-result) 300)
+                                               (concatenate 'string 
+                                                 (subseq tool-result 0 300) "...")
+                                             tool-result))
+                           (agent-st (add-tool-result tool-result agent-st)))
+                      (prog2$ (cw "~%Result: ~s0~%" display-result)
+                        ;; Continue ReAct loop
+                        (react-loop agent-st model-id mcp-conn (1- max-steps) state)))))))))))))
+
+#-skip-interactive
+(defun chat-turn (user-msg agent-st model-id mcp-conn state)
+  "Execute one chat turn with ReAct: add user message, run ReAct loop"
   (declare (xargs :mode :program :stobjs state))
   (let ((st-with-user (add-user-msg user-msg agent-st)))
-    (mv-let (err response state)
-      (llm-chat-completion model-id (get-messages st-with-user) state)
-      (if err
-          (prog2$ (cw "~%Error: ~s0~%" err)
-                  (mv st-with-user state))
-        (let ((st-with-response (add-assistant-msg response st-with-user)))
-          (prog2$ (cw "~%Assistant: ~s0~%" response)
-                  (mv st-with-response state)))))))
+    (react-loop st-with-user model-id mcp-conn 5 state)))
 
 ;;;============================================================================
 ;;; Cell 14: Full ReAct step demonstration
@@ -374,10 +491,10 @@ Be concise but helpful in your responses.")
 
 ;; Helper must be defined before main function
 #-skip-interactive
-(defun interactive-chat-loop-aux (agent-st model-id state)
-  "Helper for interactive chat loop."
+(defun interactive-chat-loop-aux (agent-st model-id mcp-conn state)
+  "Helper for interactive chat loop with code execution."
   (declare (xargs :mode :program :stobjs state))
-  (prog2$ (cw "You: ")  ; prompt
+  (prog2$ (cw "~%You: ")  ; prompt
     (mv-let (input state)
       (read-line-from-user state)
       (if (or (null input)
@@ -386,19 +503,27 @@ Be concise but helpful in your responses.")
           (prog2$ (cw "~%Goodbye!~%")
                   (mv agent-st state))
         (mv-let (new-agent state)
-          (chat-turn input agent-st model-id state)
-          (interactive-chat-loop-aux new-agent model-id state))))))
+          (chat-turn input agent-st model-id mcp-conn state)
+          (interactive-chat-loop-aux new-agent model-id mcp-conn state))))))
 
 ;; Interactive chat loop - runs until user types /exit
 #-skip-interactive
 (defun interactive-chat-loop (agent-st model-id state)
-  "Run an interactive chat loop. Type /exit to quit."
+  "Run an interactive ReAct chat loop with code execution. Type /exit to quit."
   (declare (xargs :mode :program :stobjs state))
   (prog2$ (cw "~%========================================~%")
-    (prog2$ (cw "Interactive Chat (type /exit to quit)~%")
-      (prog2$ (cw "========================================~%")
-        (interactive-chat-loop-aux agent-st model-id state)))))
+    (prog2$ (cw "Interactive ReAct Chat with Code Execution~%")
+      (prog2$ (cw "(type /exit to quit)~%")
+        (prog2$ (cw "========================================~%")
+          (prog2$ (cw "~%Connecting to MCP server...~%")
+            (mv-let (mcp-err mcp-conn state)
+              (mcp-connect *mcp-default-endpoint* state)
+              (if mcp-err
+                  (prog2$ (cw "MCP connection failed: ~s0~%" mcp-err)
+                    (prog2$ (cw "Code execution disabled.~%")
+                      (interactive-chat-loop-aux agent-st model-id nil state)))
+                (prog2$ (cw "MCP connected. Code execution enabled.~%")
+                  (interactive-chat-loop-aux agent-st model-id mcp-conn state))))))))))
 
-;; To start interactive chat, uncomment and run:
-#-skip-interactive
+;; To start interactive chat after loading, run:
 ;; (interactive-chat-loop *agent-v1* *model-id* state)
