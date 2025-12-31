@@ -44,6 +44,7 @@
                             "ACL2_HOME": "/home/acl2",
                             "ACL2_SYSTEM_BOOKS": "/home/acl2/books",
                             "ACL2": "/opt/acl2/bin/saved_acl2",
+                            "SBCL_USER_ARGS": "--noinform",
                             "VIRTUAL_ENV": "/workspaces/acl2-swf-experiments/.venv",
                             "PATH": "/workspaces/acl2-swf-experiments/.venv/bin:/opt/acl2/bin:/opt/conda/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
                         }
