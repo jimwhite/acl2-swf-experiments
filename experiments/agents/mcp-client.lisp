@@ -187,6 +187,18 @@
   (stringp (serialize-string-args pairs)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; Trust tag and raw Lisp inclusion
+;;
+;; IMPORTANT: This MUST come before any functions that call the raw Lisp
+;; implementations (like mcp-connect), otherwise the compiled code will
+;; use the logical stub definitions instead of the raw Lisp implementations.
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+(defttag :mcp-client)
+
+(include-raw "mcp-client-raw.lsp")
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Main API Helpers
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
@@ -217,10 +229,15 @@
        (headers '(("Content-Type" . "application/json")
                   ("Accept" . "application/json, text/event-stream")))
        
+       (- (cw "DEBUG mcp-connect: request=~s0~%" request-json))
+       
        ;; Make HTTP POST request with headers
        ((mv http-err body status-raw response-headers state)
         (post-json-with-headers endpoint request-json headers 
                                 *mcp-connect-timeout* *mcp-read-timeout* state))
+       
+       (- (cw "DEBUG mcp-connect: http-err=~x0 status=~x1~%" http-err status-raw))
+       (- (cw "DEBUG mcp-connect: response-headers=~x0~%" response-headers))
        
        ;; Coerce status to natp for guard
        (status (mbe :logic (nfix status-raw) :exec status-raw))
@@ -238,6 +255,7 @@
        
        ;; Extract session ID from response headers
        (session-id (parse-mcp-session-id response-headers))
+       (- (cw "DEBUG mcp-connect: parsed session-id=~x0~%" session-id))
        
        ;; Check we got a session ID
        ((unless session-id)
@@ -283,8 +301,9 @@
        
        ;; Serialize the request to JSON-RPC 2.0 format
        (request-json (serialize-mcp-tool-call tool-name args-json *mcp-request-id*))
-       ;; Include session ID in headers
+       ;; Include session ID and Accept headers
        (headers (list (cons "Content-Type" "application/json")
+                      (cons "Accept" "application/json")
                       (cons "Mcp-Session-Id" session-id)))
        
        ;; Make HTTP POST request
@@ -391,11 +410,3 @@
   (mcp-call-tool conn "prove"
                  (list (cons "code" code))
                  state))
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;; Trust tag and raw Lisp inclusion
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-
-(defttag :mcp-client)
-
-(include-raw "mcp-client-raw.lsp")
