@@ -272,10 +272,11 @@
      (mv-let (err result state)
        (mcp-acl2-execute conn "(defun bad (x) (+ x" state)
        (cond
-         ((not (equal err 'syntax-error))
+         ;; err should be a string now, not a symbol
+         ((not (and (stringp err) (search "Syntax" err)))
           (prog2$ (test-fail "syntax error detection"
-                             (concatenate 'string "Expected SYNTAX-ERROR, got: "
-                                          (if err (symbol-name err) "nil")))
+                             (concatenate 'string "Expected syntax error string, got: "
+                                          (if (stringp err) err "non-string")))
                   (mv 0 2 state)))
          ((not (search "Syntax errors found:" result))
           (prog2$ (test-fail "syntax error message"
@@ -286,7 +287,7 @@
           (mv-let (err2 result2 state)
             (mcp-acl2-execute conn "(+ 1 2)" state)
             (declare (ignorable result2))
-            (if (equal err2 'syntax-error)
+            (if (and (stringp err2) (search "Syntax" err2))
                 (prog2$ (test-fail "valid code flagged as syntax error"
                                    "Valid code should not trigger syntax error")
                         (mv 1 1 state))

@@ -402,14 +402,45 @@
     (and (>= (length result) (length prefix))
          (equal (subseq result 0 (length prefix)) prefix))))
 
+(defun extract-syntax-error-detail (result)
+  "Extract the actual error message from ACL2 syntax check output.
+   Looks for 'Error:' line after the banner noise."
+  (declare (xargs :guard (stringp result) :mode :program))
+  (let ((error-pos (search "Error:" result)))
+    (if (not error-pos)
+        ;; No 'Error:' found, try to find ABORTING message
+        (let ((abort-pos (search "ABORTING from raw Lisp" result)))
+          (if (not abort-pos)
+              "Syntax error (details unavailable)"
+            ;; Find the Error: line after ABORTING
+            (let ((after-abort (subseq result abort-pos (length result))))
+              (let ((err-in-abort (search "Error:" after-abort)))
+                (if (not err-in-abort)
+                    "Syntax error (malformed s-expression)"
+                  ;; Extract until next newline or ***
+                  (let* ((err-start (+ abort-pos err-in-abort))
+                         (rest (subseq result err-start (length result)))
+                         (nl-pos (search (coerce '(#\Newline) 'string) rest))
+                         (stars-pos (search "***" rest))
+                         (end-pos (cond ((and nl-pos stars-pos) (min nl-pos stars-pos))
+                                        (nl-pos nl-pos)
+                                        (stars-pos stars-pos)
+                                        (t (min 100 (length rest))))))
+                    (subseq rest 0 end-pos)))))))
+      ;; Found 'Error:' directly - extract to newline
+      (let* ((rest (subseq result error-pos (length result)))
+             (nl-pos (search (coerce '(#\Newline) 'string) rest))
+             (end-pos (if nl-pos nl-pos (min 100 (length rest)))))
+        (subseq rest 0 end-pos)))))
+
 (defun mcp-acl2-execute (conn code state)
   "Execute ACL2 code block via MCP. Handles multiple forms automatically.
    This is the main entry point for code execution - it:
    1. Checks syntax first (catches malformed s-expressions)
    2. Sends entire code block to evaluate (which handles multiple forms)
    Returns (mv err result state).
-   If syntax errors are detected, err will be 'SYNTAX-ERROR and result
-   will contain the error message."
+   If syntax errors are detected, err will be a descriptive string and result
+   will contain the detailed error message."
   (declare (xargs :guard (and (mcp-connection-p conn)
                               (stringp code))
                   :stobjs state
@@ -423,7 +454,10 @@
        (mv syntax-err syntax-result state))
       ;; Syntax check found errors in the code
       ((syntax-error-p syntax-result)
-       (mv 'syntax-error syntax-result state))
+       (let ((detail (extract-syntax-error-detail syntax-result)))
+         (mv (concatenate 'string "Syntax error: " detail) 
+             syntax-result 
+             state)))
       ;; Syntax OK - evaluate the whole block  
       (t
        (mcp-acl2-evaluate conn code state)))))
