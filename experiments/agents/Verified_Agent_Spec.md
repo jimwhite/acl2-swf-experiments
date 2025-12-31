@@ -652,6 +652,163 @@ mcp_acl2-mcp_evaluate :session_id "..." :code "(foo 5)"
 
 ---
 
+## MCP Client (ACL2 HTTP Client for acl2-mcp)
+
+### Overview
+
+The MCP client enables the verified agent to call acl2-mcp tools directly from ACL2 via HTTP. This provides an alternative to the external Python driver approach—the agent can execute code without leaving ACL2.
+
+### Architecture
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                    Verified Agent (ACL2)                        │
+│  verified-agent.lisp                                            │
+│  └── Calls mcp-acl2-evaluate, mcp-acl2-admit, mcp-acl2-prove    │
+├─────────────────────────────────────────────────────────────────┤
+│                    MCP Client (ACL2)                            │
+│  mcp-client.lisp                                                │
+│  ├── mcp-connect (endpoint, state) → (err, conn, state)         │
+│  ├── mcp-call-tool (conn, tool, args, state) → (err, result)    │
+│  ├── mcp-acl2-evaluate (conn, code, state) → (err, result)      │
+│  ├── mcp-acl2-admit (conn, code, state) → (err, result)         │
+│  └── mcp-acl2-prove (conn, code, state) → (err, result)         │
+├─────────────────────────────────────────────────────────────────┤
+│                    HTTP Client (ACL2)                           │
+│  http-json.lisp (wraps dexador via quicklisp)                   │
+│  ├── post-json-with-headers - HTTP POST returning headers       │
+│  └── Uses :ttag :http-json for raw Lisp HTTP                    │
+├─────────────────────────────────────────────────────────────────┤
+│                    mcp-proxy + acl2-mcp                         │
+│  mcp-proxy acl2-mcp --transport streamablehttp --port 8000      │
+│  ├── Wraps acl2-mcp stdio server as HTTP endpoint               │
+│  └── Uses Mcp-Session-Id header for session management          │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### MCP Transport Session Protocol
+
+The streamable HTTP transport requires session management:
+
+1. **Initialize**: POST to `/mcp` with `{"method": "initialize", ...}`
+2. **Get Session ID**: Response header `Mcp-Session-Id: <uuid>`
+3. **Subsequent calls**: Include `Mcp-Session-Id` header in all requests
+4. **Tool calls**: POST `{"method": "tools/call", "params": {"name": "evaluate", "arguments": {...}}}`
+
+### Key Files
+
+| File | Purpose |
+|------|---------|
+| `http-json.lisp` | HTTP POST with JSON, returns response headers |
+| `http-json-raw.lsp` | Raw Lisp dexador wrapper |
+| `mcp-client.lisp` | MCP JSON-RPC client, session management |
+| `mcp-client-raw.lsp` | JSON serialization for MCP protocol |
+
+### Critical Implementation Notes
+
+**1. `include-raw` must come BEFORE functions that call raw Lisp stubs.**
+
+When ACL2 compiles a guard-verified function, it bakes in the calls to other functions. If `include-raw` comes after a function definition, that function will use the **logical stub** (which typically returns nil/error) instead of the raw Lisp implementation.
+
+```lisp
+;; WRONG ORDER - mcp-connect will use logical stubs
+(defun parse-mcp-session-id (headers) 
+  (prog2$ (er hard? ...) nil))  ; Stub
+(defun mcp-connect (endpoint state) ...)  ; Compiled with stub
+(include-raw "mcp-client-raw.lsp")  ; Too late!
+
+;; CORRECT ORDER - mcp-connect uses raw implementations  
+(defun parse-mcp-session-id (headers) 
+  (prog2$ (er hard? ...) nil))  ; Stub
+(include-raw "mcp-client-raw.lsp")  ; Replaces stub
+(defun mcp-connect (endpoint state) ...)  ; Compiled with raw
+```
+
+**2. SBCL inlines small functions - must use `(declaim (notinline ...))`**
+
+Even with correct ordering, SBCL may inline tiny stub functions (e.g., ones that just return nil). This causes the compiled function to have the stub code embedded directly, bypassing the symbol-function lookup.
+
+**Solution:** In the raw Lisp file, add `declaim` BEFORE the function definitions:
+
+```lisp
+;; In mcp-client-raw.lsp (at the top)
+(declaim (notinline parse-mcp-session-id))
+(declaim (notinline serialize-mcp-tool-call))
+;; ... then define the actual implementations
+```
+
+This ensures SBCL always does a runtime function lookup rather than inlining.
+
+### Testing Strategy
+
+**Certification vs Integration Tests are completely separate:**
+
+| Aspect | Certification | Integration Tests |
+|--------|---------------|-------------------|
+| When | `cert.pl mcp-client.lisp` | Separate script, manual REPL |
+| What | Type correctness, guard verification, theorems | Actual HTTP calls to mcp-proxy |
+| I/O | None (compile-time only) | Yes (runtime HTTP) |
+| MCP server | Not required | Must be running |
+
+**Certification** proves:
+- Return types are correct (`mcp-connection-p`, `stringp`, etc.)
+- Guards are verified (inputs satisfy preconditions)
+- Raw Lisp stubs have correct signatures
+
+**Integration tests** verify:
+- HTTP requests actually work
+- MCP session protocol is correct
+- JSON serialization/parsing works
+- Tool calls return expected results
+
+### Integration Test Files
+
+**`test_acl2_mcp_client.py`** — Tests the ACL2 mcp-client.lisp code:
+
+```python
+# Run with: python test_acl2_mcp_client.py
+# Requires: mcp-proxy running on port 8000, mcp-client.lisp certified
+
+def test_mcp_connect():
+    """ACL2 mcp-connect establishes session"""
+    
+def test_mcp_evaluate():
+    """ACL2 mcp-acl2-evaluate: (+ 1 2 3) → 6"""
+    
+def test_mcp_admit():
+    """ACL2 mcp-acl2-admit: defun without saving"""
+    
+def test_mcp_prove():
+    """ACL2 mcp-acl2-prove: simple theorem"""
+```
+
+Each test:
+1. Starts an ACL2 subprocess
+2. Loads mcp-client book
+3. Executes MCP client functions
+4. Checks output for success patterns
+
+### Running Integration Tests
+
+```bash
+# Terminal 1: Start MCP proxy
+mcp-proxy acl2-mcp --transport streamablehttp --port 8000 --pass-environment
+
+# Terminal 2: Run integration tests
+cd experiments/agents
+python test_acl2_mcp_client.py
+
+# Or test from ACL2 REPL (manual)
+(include-book "mcp-client")
+(mv-let (err conn state)
+  (mcp-connect "http://localhost:8000/mcp" state)
+  (if err (cw "Error: ~s0~%" err)
+    (b* (((mv e r state) (mcp-acl2-evaluate conn "(+ 1 2)" state)))
+      (cw "Result: ~x0~%" r))))
+```
+
+---
+
 ## MCP Integration (Phase 1.9 - Planned)
 
 After code execution is working, add MCP tool calls for Oxigraph and Qdrant using the same HTTP/JSON-RPC pattern. The ACL2-MCP server can also be integrated for richer ACL2 interaction.

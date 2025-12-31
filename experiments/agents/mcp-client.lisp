@@ -16,6 +16,7 @@
 
 (include-book "http-json" 
               :ttags ((:quicklisp) (:quicklisp.dexador) (:http-json)))
+(include-book "kestrel/json-parser/parse-json-file" :dir :system)
 (include-book "std/strings/cat" :dir :system)
 (include-book "std/strings/explode-nonnegative-integer" :dir :system)
 (include-book "std/util/bstar" :dir :system)
@@ -229,15 +230,10 @@
        (headers '(("Content-Type" . "application/json")
                   ("Accept" . "application/json, text/event-stream")))
        
-       (- (cw "DEBUG mcp-connect: request=~s0~%" request-json))
-       
        ;; Make HTTP POST request with headers
        ((mv http-err body status-raw response-headers state)
         (post-json-with-headers endpoint request-json headers 
                                 *mcp-connect-timeout* *mcp-read-timeout* state))
-       
-       (- (cw "DEBUG mcp-connect: http-err=~x0 status=~x1~%" http-err status-raw))
-       (- (cw "DEBUG mcp-connect: response-headers=~x0~%" response-headers))
        
        ;; Coerce status to natp for guard
        (status (mbe :logic (nfix status-raw) :exec status-raw))
@@ -255,7 +251,6 @@
        
        ;; Extract session ID from response headers
        (session-id (parse-mcp-session-id response-headers))
-       (- (cw "DEBUG mcp-connect: parsed session-id=~x0~%" session-id))
        
        ;; Check we got a session ID
        ((unless session-id)

@@ -16,6 +16,17 @@
 (in-package "ACL2")
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; Prevent SBCL from inlining stub functions that we replace here
+;; This must be done BEFORE any functions that call these are compiled
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+(declaim (notinline parse-mcp-session-id))
+(declaim (notinline serialize-mcp-tool-call))
+(declaim (notinline serialize-mcp-initialize))
+(declaim (notinline serialize-string-args))
+(declaim (notinline parse-mcp-response))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; JSON escaping helper
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
