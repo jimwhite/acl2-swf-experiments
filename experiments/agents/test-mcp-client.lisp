@@ -256,44 +256,30 @@
                   (mv 1 0 state))))))))
 
 ;;;============================================================================
-;;; Test: Syntax Error Detection
+;;; Test: Direct Syntax Check (standalone, not used by mcp-acl2-execute)
 ;;;============================================================================
 
-(defun test-syntax-errors (conn state)
-  "Test that syntax errors are caught before execution."
+(defun test-syntax-check (conn state)
+  "Test the standalone mcp-acl2-check-syntax function.
+   Note: This is NOT used by mcp-acl2-execute anymore because ACL2's
+   'syntax check' actually runs the code with a short timeout, causing
+   false positives on valid code that takes longer than 5 seconds."
   (declare (xargs :mode :program :stobjs state)
            (ignorable conn))
   (prog2$ 
-   (test-section "Syntax Error Detection Tests")
+   (test-section "Syntax Check Tests (standalone)")
    (if (not (mcp-connection-p conn))
        (prog2$ (test-fail "syntax tests" "No connection")
-               (mv 0 2 state))
-     ;; Test 1: Unbalanced parens should be caught
+               (mv 0 1 state))
+     ;; Just test that syntax check on simple code works
      (mv-let (err result state)
-       (mcp-acl2-execute conn "(defun bad (x) (+ x" state)
-       (cond
-         ;; err should be a string now, not a symbol
-         ((not (and (stringp err) (search "Syntax" err)))
-          (prog2$ (test-fail "syntax error detection"
-                             (concatenate 'string "Expected syntax error string, got: "
-                                          (if (stringp err) err "non-string")))
-                  (mv 0 2 state)))
-         ((not (search "Syntax errors found:" result))
-          (prog2$ (test-fail "syntax error message"
-                             (concatenate 'string "Expected syntax error message, got: " result))
-                  (mv 1 1 state)))
-         (t
-          ;; Test 2: Valid code should not trigger syntax error
-          (mv-let (err2 result2 state)
-            (mcp-acl2-execute conn "(+ 1 2)" state)
-            (declare (ignorable result2))
-            (if (and (stringp err2) (search "Syntax" err2))
-                (prog2$ (test-fail "valid code flagged as syntax error"
-                                   "Valid code should not trigger syntax error")
-                        (mv 1 1 state))
-              (prog2$ (test-pass "syntax error detection: catches malformed code")
-              (prog2$ (test-pass "valid code passes syntax check")
-                      (mv 2 0 state)))))))))))
+       (mcp-acl2-check-syntax conn "(+ 1 2)" state)
+       (declare (ignorable result))
+       (if err
+           (prog2$ (test-fail "simple syntax check" err)
+                   (mv 0 1 state))
+         (prog2$ (test-pass "syntax check on simple expression")
+                 (mv 1 0 state)))))))
 
 ;;;============================================================================
 ;;; Main Test Runner
@@ -327,7 +313,7 @@
                 (mv-let (pass7 fail7 state)
                   (test-mcp-execute conn state)
                   (mv-let (pass8 fail8 state)
-                    (test-syntax-errors conn state)
+                    (test-syntax-check conn state)
                     (let ((total-pass (+ pass1 pass2 pass3 pass4 pass5 pass6 pass7 pass8))
                           (total-fail (+ fail1 fail2 fail3 fail4 fail5 fail6 fail7 fail8)))
                       (prog2$ (cw "~%")

@@ -435,32 +435,18 @@
 
 (defun mcp-acl2-execute (conn code state)
   "Execute ACL2 code block via MCP. Handles multiple forms automatically.
-   This is the main entry point for code execution - it:
-   1. Checks syntax first (catches malformed s-expressions)
-   2. Sends entire code block to evaluate (which handles multiple forms)
-   Returns (mv err result state).
-   If syntax errors are detected, err will be a descriptive string and result
-   will contain the detailed error message."
+   This is the main entry point for code execution - sends code to evaluate
+   which handles multiple forms.
+   Returns (mv err result state)."
   (declare (xargs :guard (and (mcp-connection-p conn)
                               (stringp code))
                   :stobjs state
                   :mode :program))
-  ;; First check syntax
-  (mv-let (syntax-err syntax-result state)
-    (mcp-acl2-check-syntax conn code state)
-    (cond
-      ;; MCP call itself failed
-      (syntax-err
-       (mv syntax-err syntax-result state))
-      ;; Syntax check found errors in the code
-      ((syntax-error-p syntax-result)
-       (let ((detail (extract-syntax-error-detail syntax-result)))
-         (mv (concatenate 'string "Syntax error: " detail) 
-             syntax-result 
-             state)))
-      ;; Syntax OK - evaluate the whole block  
-      (t
-       (mcp-acl2-evaluate conn code state)))))
+  ;; Just evaluate directly - the check_syntax tool is unreliable because
+  ;; ACL2 doesn't have a true syntax-only checker. It runs the code with a
+  ;; short timeout, which causes false positives on valid code that takes
+  ;; more than 5 seconds to execute.
+  (mcp-acl2-evaluate conn code state))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Connection Management
