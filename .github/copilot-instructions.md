@@ -4,7 +4,7 @@
 
 This repository contains ACL2 theorem prover experiments in two tracks:
 1. **Software Foundations** - Adapting proofs from Coq to ACL2 (arithmetic, lists, logic)
-2. **Verified Agents** - Formally verified AI agents using ACL2 + Z3 + LangGraph
+2. **Verified Agents** - Formally verified AI agents using ACL2 with FTY types
 
 ## Architecture
 
@@ -13,9 +13,74 @@ experiments/        # ACL2 proof files organized by topic
   arithmetic/       # Number theorems, Peano encoding
   lists/            # List operations, higher-order functions
   logic/            # (planned) Logical connectives
-  agents/           # Verified AI agents with Z3 enforcement
+  agents/           # Verified AI agents - see spec below
 utils/common.lisp   # Shared definitions (add reusable lemmas here)
 notes/              # Learning docs, progression tracking
+acl2-mcp/           # ACL2 MCP server for tool integration
+```
+
+## Verified Agents Track (PRIMARY FOCUS)
+
+**IMPORTANT**: When working on verified agents, always consult:
+- **[Verified_Agent_Spec.md](experiments/agents/Verified_Agent_Spec.md)** - Complete specification
+- **[verified-agent.lisp](experiments/agents/verified-agent.lisp)** - Main implementation
+
+### Core Design Principles
+
+1. **Verify the decision logic, not the world** — ACL2 proves properties about how the agent decides
+2. **Keep verified core simple** — Complex operations (LLM, code execution) handled by external driver
+3. **FTY over STObj** — Cleaner types, auto-generated theorems, easier reasoning
+4. **MCP for external tools** — acl2-mcp provides code execution, future: Oxigraph, Qdrant
+
+### Key Files
+
+| File | Purpose |
+|------|---------|
+| `verified-agent.lisp` | Main agent: FTY types, decision functions, safety theorems |
+| `context-manager.lisp` | Conversation history with sliding window truncation |
+| `llm-types.lisp` | FTY message types (chat-role, chat-message) |
+| `llm-client.lisp` | HTTP client for LM Studio |
+| `Verified_Agent_Spec.md` | **Complete specification - READ THIS FIRST** |
+
+### Permission Model
+
+```lisp
+;; File access levels (orthogonal to execute)
+*access-none* = 0
+*access-read* = 1  
+*access-read-write* = 2
+
+;; Decision functions
+(tool-permitted-p tool st)        ; permission check
+(tool-budget-sufficient-p tool st) ; budget check
+(can-invoke-tool-p tool st)       ; permission AND budget
+(must-respond-p st)               ; termination conditions
+(should-continue-p st)            ; has budget, not satisfied
+```
+
+### Proven Safety Properties
+
+- `permission-safety` — `can-invoke-tool-p → tool-permitted-p`
+- `budget-bounds-after-deduct` — Budgets remain non-negative
+- `termination-by-max-steps` — Agent halts within max-steps
+- `truncate-preserves-system-prompt` — System message always preserved
+
+### Code Execution (via acl2-mcp)
+
+Code execution uses **acl2-mcp as external driver** (not ACL2s interface books):
+- Agent's `execute-allowed` field controls permission
+- External driver extracts code from markdown blocks
+- acl2-mcp evaluates code, returns results/errors
+- Error messages are useful for LLM learning
+
+### Testing with acl2-mcp
+
+```lisp
+;; Use MCP tools for interactive testing
+(mcp_acl2-mcp_evaluate :code "(+ 1 2)")           ; => 3
+(mcp_acl2-mcp_evaluate :code "(car 5)")           ; => guard violation error
+(mcp_acl2-mcp_admit :code "(defun foo (x) x)")    ; test without saving
+(mcp_acl2-mcp_prove :code "(defthm ...)")         ; prove theorem
 ```
 
 ## ACL2 File Conventions
@@ -28,108 +93,76 @@ notes/              # Learning docs, progression tracking
 ## Key Build Commands
 
 ```bash
-# Certify (prove) all ACL2 books
-make certify
-
 # Certify a specific book
-make experiments/lists/experiment-01-list-basics.cert
+cert.pl experiments/agents/verified-agent.lisp
 
-# Check which books need certification
-make check-cert
+# Or via make
+make experiments/agents/verified-agent.cert
 
-# Convert .lisp to Jupyter notebooks
-make all
-
-# Clean certification artifacts
-make clean-cert
+# Clean and recertify
+rm -f *.cert *.cert.out *.lx64fsl && cert.pl file.lisp
 ```
 
-## Critical Proof Patterns
+## Critical ACL2 Patterns
 
-### Theory Control (Most Important)
-
-ACL2's rewriter can over-normalize terms. Control it with `:in-theory`:
+### FTY Case Macros Require Variables
 
 ```lisp
-;; Disable a rule globally, re-enable at specific subgoal
-:hints (("Goal" :in-theory (e/d (fold-product) (commutativity-of-*)))
-        ("Subgoal *1/3''" :in-theory (enable commutativity-of-* associativity-of-*)))
+;; WRONG - causes macro expansion error
+(chat-role-case (chat-message->role msg) :system ...)
+
+;; CORRECT - bind to variable first
+(let ((role (chat-message->role msg)))
+  (chat-role-case role :system ...))
 ```
 
-See [experiment-02-higher-order-product.lisp](experiments/lists/experiment-02-higher-order-product.lisp) for complete example.
-
-### Avoiding Rewrite Loops
-
-When proving lemmas about the same function, disable earlier lemmas:
+### Guard Verification with Type-Prescription
 
 ```lisp
-(defthm revappend-of-append-lists
-  (equal (revappend (append x y) acc)
-         (revappend y (revappend x acc)))
-  :hints (("Goal" :in-theory (disable revappend-is-append-reverse))))
+;; Return-type theorems need :type-prescription for guard verification
+(defthm natp-of-my-fn
+  (natp (my-fn x))
+  :rule-classes (:rewrite :type-prescription))
+
+;; Then disable definition in caller's guard hints
+(defun caller (x)
+  (declare (xargs :guard-hints (("Goal" :in-theory (disable my-fn)))))
+  ...)
 ```
 
-### Working with `reverse`
+### Theory Control
 
-ACL2's `reverse` uses `revappend` internally. Prove helper lemmas about `revappend` first:
-1. `append-revappend` - basic interaction
-2. `revappend-is-append-reverse` - fundamental characterization  
-3. Then prove theorems about `reverse`
-
-See [experiment-01-list-basics.lisp](experiments/lists/experiment-01-list-basics.lisp) for pattern.
+```lisp
+;; Disable rules that cause loops, enable at specific subgoals
+:hints (("Goal" :in-theory (e/d (foo) (bar)))
+        ("Subgoal *1/3" :in-theory (enable bar)))
+```
 
 ## Common Predicates
 
 - `(natp x)` - natural number, `(zp x)` - zero predicate
-- `(true-listp l)` - proper list, `(nat-listp l)` - list of naturals
+- `(true-listp l)` - proper list, `(stringp s)` - string
 - `(consp x)` - non-empty list, `(endp x)` - end of list
+- `(booleanp x)` - boolean, `(symbolp x)` - symbol
 
 ## Development Workflow
 
-1. Write functions and theorems in `.lisp` file
-2. Test interactively: run `acl2`, then `(include-book "path/to/book")`
-3. If proof fails, check "key checkpoints" in output
-4. Add local helper lemmas as stepping stones
-5. Run `make experiments/path/to/file.cert` to verify
-6. Document insights in [notes/lessons-learned.md](notes/lessons-learned.md)
-
-## Verified Agents Track
-
-The `experiments/agents/` directory contains verified AI agents:
-
-### Architecture Pattern
-1. **ACL2 specification** (`.lisp`) - Define state machine, constraints, prove properties
-2. **Python notebook** (`.ipynb`) - Runtime implementation with Z3 enforcement
-
-### Permission Model (Orthogonal)
-- **File access**: `*access-none*` (0), `*access-read*` (1), `*access-read-write*` (2)
-- **Execute**: Separate boolean - tools that run code need execute permission
-
-### Key Functions
-```lisp
-(tool-permitted-p required-access requires-execute granted-access execute-allowed)
-(can-invoke-tool-p st tool)      ; permission AND budget check
-(must-respond-p st)              ; budget exhausted or done
-(should-continue-p st)           ; has budget AND satisfaction < threshold
-```
-
-### Guard Verification
-Always verify guards for type safety - this IS the point of verified agents:
-```lisp
-;; Define return-type theorems for accessors
-(defthm agent-iteration-type
-  (implies (agent-state-p st)
-           (natp (agent-iteration st)))
-  :rule-classes :forward-chaining)
-```
-
-### LM Studio Integration
-Python notebooks connect to LM Studio on host: `http://host.docker.internal:1234/v1`
-
-See [experiment-01-react-verified.lisp](experiments/agents/experiment-01-react-verified.lisp) for ACL2 spec.
+1. **Read the spec** for verified agents work
+2. Write functions and theorems in `.lisp` file
+3. Test interactively with acl2-mcp tools
+4. If proof fails, check "key checkpoints" in output
+5. Add local helper lemmas as stepping stones
+6. Run `cert.pl file.lisp` to verify
+7. Update spec if design changes
 
 ## Resources
 
-- [Progression plan](notes/swf-progression-plan.md) - Current roadmap and completed theorems
+- [Verified Agent Spec](experiments/agents/Verified_Agent_Spec.md) - **Primary reference for agents**
+- [Progression plan](notes/swf-progression-plan.md) - Roadmap and completed theorems
 - [Quick reference](notes/acl2-quick-reference.md) - ACL2 syntax and patterns
 - [Lessons learned](notes/lessons-learned.md) - Documented proof techniques
+
+## LM Studio Integration
+
+LLM calls go to LM Studio on host: `http://host.docker.internal:1234/v1`
+

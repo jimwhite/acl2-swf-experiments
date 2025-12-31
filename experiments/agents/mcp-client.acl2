@@ -1,1 +1,2 @@
 ; cert-flags: ? t :ttags :all
+(include-book "http-json")
