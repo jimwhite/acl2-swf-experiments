@@ -227,6 +227,35 @@
                        (mv 1 0 state)))))))))))
 
 ;;;============================================================================
+;;; Test: Multi-form Execute (mcp-acl2-execute)
+;;;============================================================================
+
+(defun test-mcp-execute (conn state)
+  "Test mcp-acl2-execute with multiple forms in one block."
+  (declare (xargs :mode :program :stobjs state)
+           (ignorable conn))
+  (prog2$ 
+   (test-section "Multi-form Execute Tests")
+   (if (not (mcp-connection-p conn))
+       (prog2$ (test-fail "execute tests" "No connection")
+               (mv 0 1 state))
+     ;; Test defining a function and calling it in one block
+     (mv-let (err result state)
+       (mcp-acl2-execute conn 
+         "(defun my-square (x) (* x x))
+          (my-square 7)" 
+         state)
+       (declare (ignorable err))
+       (cond
+         ((not (search "49" result))
+          (prog2$ (test-fail "multi-form execute"
+                             (concatenate 'string "Expected 49, got: " result))
+                  (mv 0 1 state)))
+         (t
+          (prog2$ (test-pass "multi-form: defun + call in one block => 49")
+                  (mv 1 0 state))))))))
+
+;;;============================================================================
 ;;; Main Test Runner
 ;;;============================================================================
 
@@ -255,16 +284,18 @@
               (test-mcp-errors conn state)
               (mv-let (pass6 fail6 state)
                 (test-session-persistence conn state)
-                (let ((total-pass (+ pass1 pass2 pass3 pass4 pass5 pass6))
-                      (total-fail (+ fail1 fail2 fail3 fail4 fail5 fail6)))
-                  (prog2$ (cw "~%")
-                  (prog2$ (cw "══════════════════════════════════════════~%")
-                  (prog2$ (cw "Results: ~x0 passed, ~x1 failed~%" 
-                              total-pass total-fail)
-                  (prog2$ (if (= total-fail 0)
-                              (cw "All tests passed! ✓~%")
-                            (cw "Some tests failed. ✗~%"))
-                          state)))))))))))))))))
+                (mv-let (pass7 fail7 state)
+                  (test-mcp-execute conn state)
+                  (let ((total-pass (+ pass1 pass2 pass3 pass4 pass5 pass6 pass7))
+                        (total-fail (+ fail1 fail2 fail3 fail4 fail5 fail6 fail7)))
+                    (prog2$ (cw "~%")
+                    (prog2$ (cw "══════════════════════════════════════════~%")
+                    (prog2$ (cw "Results: ~x0 passed, ~x1 failed~%" 
+                                total-pass total-fail)
+                    (prog2$ (if (= total-fail 0)
+                                (cw "All tests passed! ✓~%")
+                              (cw "Some tests failed. ✗~%"))
+                            state))))))))))))))))))
 
 ;; Run tests when this file is loaded
 (make-event

@@ -382,6 +382,37 @@
                        (cons "session_id" session-id)))))
     (mcp-call-tool conn "prove" args state)))
 
+(defun mcp-acl2-check-syntax (conn code state)
+  "Check ACL2 code for syntax errors. Returns (mv err result state).
+   err is non-nil if there are syntax errors."
+  (declare (xargs :guard (and (mcp-connection-p conn)
+                              (stringp code))
+                  :stobjs state
+                  :mode :program))
+  ;; check_syntax doesn't need session_id - it's stateless
+  (mcp-call-tool conn "check_syntax"
+                 (list (cons "code" code))
+                 state))
+
+(defun mcp-acl2-execute (conn code state)
+  "Execute ACL2 code block via MCP. Handles multiple forms automatically.
+   This is the main entry point for code execution - it:
+   1. Checks syntax first
+   2. Sends entire code block to evaluate (which handles multiple forms)
+   Returns (mv err result state)."
+  (declare (xargs :guard (and (mcp-connection-p conn)
+                              (stringp code))
+                  :stobjs state
+                  :mode :program))
+  ;; First check syntax
+  (mv-let (syntax-err syntax-result state)
+    (mcp-acl2-check-syntax conn code state)
+    (if syntax-err
+        ;; Syntax error - return it
+        (mv syntax-err syntax-result state)
+      ;; Syntax OK - evaluate the whole block
+      (mcp-acl2-evaluate conn code state))))
+
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Connection Management
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;

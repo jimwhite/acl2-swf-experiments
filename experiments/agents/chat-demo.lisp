@@ -335,22 +335,14 @@ Be concise. Show your reasoning.")
             (mv nil "")
           (mv t (my-string-trim (subseq rest 0 end-pos))))))))
 
-;; Execute ACL2 code via MCP, auto-detecting form type
+;; Execute ACL2 code via MCP
+;; Uses mcp-acl2-execute which handles multiple forms and checks syntax first
 #-skip-interactive
 (defun execute-acl2-code (code mcp-conn state)
   (declare (xargs :mode :program :stobjs state))
   (if (not (mcp-connection-p mcp-conn))
       (mv "No MCP connection" "" state)
-    (let* ((trimmed (my-string-trim code))
-           (is-defun (and (>= (length trimmed) 6)
-                          (equal (subseq trimmed 0 6) "(defun")))
-           (is-defthm (and (>= (length trimmed) 7)
-                           (equal (subseq trimmed 0 7) "(defthm")))
-           (is-thm (and (>= (length trimmed) 4)
-                        (equal (subseq trimmed 0 4) "(thm"))))
-      (cond (is-defun (mcp-acl2-admit mcp-conn code state))
-            ((or is-defthm is-thm) (mcp-acl2-prove mcp-conn code state))
-            (t (mcp-acl2-evaluate mcp-conn code state))))))
+    (mcp-acl2-execute mcp-conn code state)))
 
 ;;;============================================================================
 ;;; Cell 13: Interactive function for live chat
