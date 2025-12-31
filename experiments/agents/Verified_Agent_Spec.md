@@ -95,24 +95,38 @@ The runtime driver that wires everything together:
 **Key Functions:**
 - `run-code-agent` — Initialize MCP connection, agent state, run loop
 - `agent-loop` — Main ReAct loop (up to max iterations)
-- `agent-step` — Single step: LLM call → parse → execute tool → update state
-- `parse-tool-call` — Extract tool name and code from `TOOL_CALL: tool | code` format
-- `execute-tool-call` — Dispatch to appropriate MCP function
+- `agent-step` — Single step: LLM call → extract code → execute → update state
+- `extract-code-block` — Find ` ```acl2 ` or ` ```lisp ` fenced code blocks
+- `execute-acl2-code` — Auto-detect form type and call appropriate MCP function
 
-**Tool Call Format:**
-The agent uses a simple text-based tool calling format:
-```
-TOOL_CALL: acl2-evaluate | (+ 1 2 3)
-TOOL_CALL: acl2-admit | (defun foo (x) (+ x 1))
-TOOL_CALL: acl2-prove | (defthm my-thm (equal x x))
+**Code Execution Format:**
+The LLM writes ACL2 code in markdown fenced blocks. The agent extracts and executes them:
+
+````markdown
+To evaluate an expression:
+```acl2
+(+ 1 2 3)
 ```
 
-**Available Tools:**
-| Tool | MCP Function | Purpose |
-|------|--------------|---------|
-| `acl2-evaluate` | `mcp-acl2-evaluate` | Evaluate ACL2 expressions |
-| `acl2-admit` | `mcp-acl2-admit` | Test function definitions |
-| `acl2-prove` | `mcp-acl2-prove` | Attempt theorem proofs |
+To define a function:
+```acl2
+(defun factorial (n)
+  (if (zp n) 1 (* n (factorial (1- n)))))
+```
+
+To prove a theorem:
+```lisp
+(defthm plus-comm (equal (+ a b) (+ b a)))
+```
+````
+
+**Auto-Detection:**
+The agent automatically routes code to the right MCP function:
+| Code Pattern | MCP Function | Purpose |
+|--------------|--------------|---------|
+| `(defun ...)` | `mcp-acl2-admit` | Test function definitions |
+| `(defthm ...)` or `(thm ...)` | `mcp-acl2-prove` | Attempt theorem proofs |
+| Other | `mcp-acl2-evaluate` | Evaluate expressions |
 
 **Runtime State:**
 ```lisp

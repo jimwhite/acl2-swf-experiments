@@ -60,24 +60,32 @@
 ;;;============================================================================
 
 (defconst *code-agent-system-prompt*
-  "You are a helpful AI assistant with access to ACL2 code execution tools.
+  "You are a helpful AI assistant with access to ACL2 code execution.
 
-AVAILABLE TOOLS:
-1. acl2-evaluate: Evaluate ACL2 expressions (e.g., (+ 1 2 3), (car '(a b c)))
-2. acl2-admit: Test if a function definition is valid (e.g., (defun foo (x) (+ x 1)))
-3. acl2-prove: Attempt to prove a theorem (e.g., (defthm my-thm (equal (+ a b) (+ b a))))
+You can execute ACL2 code by putting it in a fenced code block with language 'acl2' or 'lisp'.
 
-TOOL CALL FORMAT:
-When you want to use a tool, respond with EXACTLY this format on its own line:
-TOOL_CALL: tool-name | code-to-execute
+EXAMPLES:
 
-Examples:
-TOOL_CALL: acl2-evaluate | (+ 1 2 3)
-TOOL_CALL: acl2-admit | (defun double (x) (* 2 x))
-TOOL_CALL: acl2-prove | (defthm plus-comm (equal (+ a b) (+ b a)))
+To evaluate an expression:
+```acl2
+(+ 1 2 3)
+```
 
-After seeing tool results, you can make more tool calls or provide a final answer.
-When you have enough information, respond normally without TOOL_CALL.
+To define and test a function:
+```acl2
+(defun factorial (n)
+  (if (zp n) 1 (* n (factorial (1- n)))))
+```
+
+To prove a theorem:
+```lisp
+(defthm plus-comm
+  (equal (+ a b) (+ b a)))
+```
+
+I will execute each code block and show you the result. You can then:
+- Write more code blocks to continue exploring
+- Give a final answer when you have enough information
 
 Be concise. Show your reasoning.")
 
@@ -114,49 +122,70 @@ Be concise. Show your reasoning.")
          (rev-trimmed (strip-leading-ws (reverse trimmed))))
     (coerce (reverse rev-trimmed) 'string)))
 
-;; Parse a tool call from LLM output
-;; Returns (mv found? tool-name code) where found? indicates if TOOL_CALL was found
-(defun parse-tool-call (response)
+;; Extract first code block from LLM response
+;; Looks for ```acl2 or ```lisp fenced blocks
+;; Returns (mv found? code) where found? indicates if a code block was found
+(defun extract-code-block (response)
   (declare (xargs :mode :program))
-  (let* ((prefix "TOOL_CALL:")
-         (pos (search prefix response)))
-    (if (not pos)
-        (mv nil nil nil)
-      ;; Found TOOL_CALL: - extract the rest of that line
-      (let* ((start (+ pos (length prefix)))
-             (rest (subseq response start (length response)))
-             ;; Find end of line
-             (newline-pos (search (coerce '(#\Newline) 'string) rest))
-             (line (if newline-pos
-                       (subseq rest 0 newline-pos)
-                     rest))
-             ;; Parse "tool-name | code"
-             (pipe-pos (search "|" line)))
-        (if (not pipe-pos)
-            (mv nil nil nil)
-          (let* ((tool-str (my-string-trim (subseq line 0 pipe-pos)))
-                 (code-str (my-string-trim (subseq line (1+ pipe-pos) (length line)))))
-            (mv t tool-str code-str)))))))
+  (let* (;; Try ```acl2 first
+         (acl2-start (search "```acl2" response))
+         (lisp-start (search "```lisp" response))
+         ;; Use whichever comes first (or exists)
+         (start-marker (cond ((and acl2-start lisp-start)
+                              (if (< acl2-start lisp-start) "```acl2" "```lisp"))
+                             (acl2-start "```acl2")
+                             (lisp-start "```lisp")
+                             (t nil)))
+         (start-pos (cond ((and acl2-start lisp-start)
+                           (min acl2-start lisp-start))
+                          (acl2-start acl2-start)
+                          (lisp-start lisp-start)
+                          (t nil))))
+    (if (not start-pos)
+        (mv nil "")
+      ;; Found a code block start - find the content
+      (let* ((content-start (+ start-pos (length start-marker)))
+             ;; Skip to newline after ```acl2 or ```lisp
+             (newline-pos (search (coerce '(#\Newline) 'string) 
+                                  (subseq response content-start (length response))))
+             (code-start (if newline-pos 
+                             (+ content-start newline-pos 1)
+                           content-start))
+             ;; Find closing ```
+             (rest (subseq response code-start (length response)))
+             (end-pos (search "```" rest)))
+        (if (not end-pos)
+            (mv nil "")  ; No closing fence
+          (mv t (my-string-trim (subseq rest 0 end-pos))))))))
 
 ;;;============================================================================
-;;; Execute Tool Call via MCP
+;;; Execute Code via MCP
 ;;;============================================================================
 
-;; Execute a tool call using the MCP client
+;; Determine what kind of ACL2 form this is and execute appropriately
 ;; Returns (mv error-string result-string state)
-(defun execute-tool-call (tool-name code mcp-conn state)
+(defun execute-acl2-code (code mcp-conn state)
   (declare (xargs :mode :program :stobjs state))
   (if (not (mcp-connection-p mcp-conn))
       (mv "No MCP connection" "" state)
-    (cond
-      ((equal tool-name "acl2-evaluate")
-       (mcp-acl2-evaluate mcp-conn code state))
-      ((equal tool-name "acl2-admit")
-       (mcp-acl2-admit mcp-conn code state))
-      ((equal tool-name "acl2-prove")
-       (mcp-acl2-prove mcp-conn code state))
-      (t
-       (mv (concatenate 'string "Unknown tool: " tool-name) "" state)))))
+    ;; Detect form type from code
+    (let* ((trimmed (my-string-trim code))
+           (is-defun (and (>= (length trimmed) 6)
+                          (equal (subseq trimmed 0 6) "(defun")))
+           (is-defthm (and (>= (length trimmed) 7)
+                           (equal (subseq trimmed 0 7) "(defthm")))
+           (is-thm (and (>= (length trimmed) 4)
+                        (equal (subseq trimmed 0 4) "(thm"))))
+      (cond
+        ;; Use admit for defun (test without saving)
+        (is-defun
+         (mcp-acl2-admit mcp-conn code state))
+        ;; Use prove for defthm/thm
+        ((or is-defthm is-thm)
+         (mcp-acl2-prove mcp-conn code state))
+        ;; Default: evaluate expression
+        (t
+         (mcp-acl2-evaluate mcp-conn code state))))))
 
 ;;;============================================================================
 ;;; Single Agent Step
@@ -188,24 +217,24 @@ Be concise. Show your reasoning.")
        
        (- (cw "~%Assistant: ~s0~%" response))
        
-       ;; Parse for tool call
-       ((mv found? tool-name code) (parse-tool-call response))
+       ;; Extract code block from response
+       ((mv found? code) (extract-code-block response))
        
        ;; Add assistant message to conversation
        (agent-st (add-assistant-msg response agent-st)))
     
     (if (not found?)
-        ;; No tool call - agent is done, return final response
+        ;; No code block - agent is done, return final response
         (mv nil nil (change-runtime-state rst :agent agent-st) state)
-      ;; Execute tool call
-      (b* ((- (cw "~%[Executing ~s0: ~s1]~%" tool-name code))
+      ;; Execute the code
+      (b* ((- (cw "~%[Executing ACL2 code:]~%~s0~%" code))
            ((mv tool-err result state)
-            (execute-tool-call tool-name code mcp-conn state))
+            (execute-acl2-code code mcp-conn state))
            
            (tool-result (if tool-err
                             (concatenate 'string "Error: " tool-err)
                           result))
-           (- (cw "~%Tool result: ~s0~%" 
+           (- (cw "~%Result: ~s0~%" 
                   (if (> (length tool-result) 200)
                       (concatenate 'string (subseq tool-result 0 200) "...")
                     tool-result)))
@@ -215,7 +244,7 @@ Be concise. Show your reasoning.")
            
            ;; Increment step counter
            (agent-st (increment-step agent-st)))
-        ;; Continue since we made a tool call
+        ;; Continue since we executed code
         (mv t nil (change-runtime-state rst :agent agent-st) state)))))
 
 ;;;============================================================================
