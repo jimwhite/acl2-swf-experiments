@@ -68,6 +68,78 @@ A formally verified ReAct agent implemented in ACL2 with FTY types. The agent's 
 
 ---
 
+## Runtime Components
+
+The verified agent's decision logic is proven correct in ACL2. The runtime components integrate it with real external services.
+
+### File Overview
+
+| File | Purpose | Status |
+|------|---------|--------|
+| `verified-agent.lisp` | Core types, decision functions, safety theorems | ✅ Certified |
+| `context-manager.lisp` | Conversation history with sliding window truncation | ✅ Certified |
+| `llm-types.lisp` | FTY types for chat messages (role, message, list) | ✅ Certified |
+| `llm-client.lisp` | HTTP client for LM Studio chat completions | ✅ Certified |
+| `mcp-client.lisp` | MCP JSON-RPC client for code execution | ✅ Certified |
+| `agent-runner.lisp` | **Runtime driver** integrating all components | ✅ Certified |
+
+### agent-runner.lisp
+
+The runtime driver that wires everything together:
+
+```lisp
+;; Main entry point - run a code execution agent
+(run-code-agent "Compute factorial of 5" "qwen/qwen3-coder-30b" state)
+```
+
+**Key Functions:**
+- `run-code-agent` — Initialize MCP connection, agent state, run loop
+- `agent-loop` — Main ReAct loop (up to max iterations)
+- `agent-step` — Single step: LLM call → parse → execute tool → update state
+- `parse-tool-call` — Extract tool name and code from `TOOL_CALL: tool | code` format
+- `execute-tool-call` — Dispatch to appropriate MCP function
+
+**Tool Call Format:**
+The agent uses a simple text-based tool calling format:
+```
+TOOL_CALL: acl2-evaluate | (+ 1 2 3)
+TOOL_CALL: acl2-admit | (defun foo (x) (+ x 1))
+TOOL_CALL: acl2-prove | (defthm my-thm (equal x x))
+```
+
+**Available Tools:**
+| Tool | MCP Function | Purpose |
+|------|--------------|---------|
+| `acl2-evaluate` | `mcp-acl2-evaluate` | Evaluate ACL2 expressions |
+| `acl2-admit` | `mcp-acl2-admit` | Test function definitions |
+| `acl2-prove` | `mcp-acl2-prove` | Attempt theorem proofs |
+
+**Runtime State:**
+```lisp
+(fty::defprod runtime-state
+  ((agent agent-state-p)      ; verified agent state
+   (mcp-conn t)               ; MCP connection (endpoint . session-id)
+   (model-id stringp)))       ; LLM model identifier
+```
+
+### mcp-client.lisp
+
+MCP JSON-RPC client for ACL2 code execution via the acl2-mcp server.
+
+**Key Functions:**
+- `mcp-connect` — Initialize session, returns `(endpoint . session-id)` pair
+- `mcp-acl2-evaluate` — Evaluate ACL2 expression
+- `mcp-acl2-admit` — Test if definition is valid
+- `mcp-acl2-prove` — Attempt theorem proof
+
+**Implementation Notes:**
+- Uses raw Lisp bridge (`mcp-client-raw.lsp`) for JSON serialization
+- Session management via `Mcp-Session-Id` HTTP header
+- **SBCL Inlining Bug:** Must use `(declaim (notinline ...))` for stub functions
+  to prevent SBCL from inlining the stub's NIL return into compiled callers
+
+---
+
 ## Type Definitions
 
 ### error-kind (deftagsum)
@@ -1257,6 +1329,20 @@ ACL2's `ceiling` can cause proof difficulties with natural number bounds. Use `t
 ---
 
 ## Changelog
+
+### v1.6 (2025-12-31)
+- **Runtime Integration Complete (Phase 2.0)** — End-to-end working agent!
+  - New `agent-runner.lisp` integrating verified-agent + llm-client + mcp-client
+  - `run-code-agent` entry point for code execution agent
+  - Text-based tool calling: `TOOL_CALL: tool-name | code`
+  - Tool dispatch to ACL2 via MCP (evaluate, admit, prove)
+  - Agent loop with proper termination (stops when no tool call)
+- **MCP Client Fixed** — SBCL inlining bug resolved
+  - Root cause: SBCL inlined stub functions returning NIL into compiled callers
+  - Fix: `(declaim (notinline ...))` at top of mcp-client-raw.lsp
+  - All 4 MCP client tests pass (connect, evaluate, admit, prove)
+- Runtime state bundles agent-state + mcp-conn + model-id
+- Successfully tested: factorial computation, theorem proving
 
 ### v1.5 (2025-12-31)
 - **Code Execution via External Driver (Phase 1.8)** — Simplified architecture

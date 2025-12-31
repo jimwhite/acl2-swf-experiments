@@ -1,0 +1,6 @@
+; Certification setup for agent-runner.lisp
+; Requires ttags for quicklisp/dexador (via http-json, llm-client, mcp-client)
+
+(in-package "ACL2")
+
+; cert-flags: ? t :ttags :all
