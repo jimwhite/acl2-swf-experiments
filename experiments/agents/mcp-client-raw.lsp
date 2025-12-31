@@ -24,7 +24,7 @@
 (declaim (notinline serialize-mcp-tool-call))
 (declaim (notinline serialize-mcp-initialize))
 (declaim (notinline serialize-string-args))
-(declaim (notinline parse-mcp-response))
+(declaim (notinline parse-mcp-response-raw))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; JSON escaping helper
@@ -165,7 +165,7 @@
                    (when (stringp text)
                      (write-string text out))))))))
 
-(defun parse-mcp-response (json)
+(defun parse-mcp-response-raw (json)
   "Parse MCP JSON-RPC response, return (error . content) cons.
    Uses Kestrel json-parser for robust JSON handling."
   (if (not (stringp json))

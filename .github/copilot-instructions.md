@@ -40,6 +40,10 @@ acl2-mcp/           # ACL2 MCP server for tool integration
 | `context-manager.lisp` | Conversation history with sliding window truncation |
 | `llm-types.lisp` | FTY message types (chat-role, chat-message) |
 | `llm-client.lisp` | HTTP client for LM Studio |
+| `mcp-client.lisp` | MCP client with persistent ACL2 sessions |
+| `chat-demo.lisp` | Interactive ReAct demo with code execution |
+| `test-mcp-client.lisp` | **Lisp integration tests for MCP client** |
+| `test_acl2_mcp_client.py` | Python integration tests for MCP client |
 | `Verified_Agent_Spec.md` | **Complete specification - READ THIS FIRST** |
 
 ### Permission Model
@@ -75,7 +79,18 @@ Code execution uses **acl2-mcp as external driver** (not ACL2s interface books):
 
 ### Testing with acl2-mcp
 
+```bash
+# Start mcp-proxy (required for tests)
+mcp-proxy acl2-mcp --transport streamablehttp --port 8000 --pass-environment
+
+# Run Python tests
+cd experiments/agents && python test_acl2_mcp_client.py
+```
+
 ```lisp
+;; Run Lisp integration tests in ACL2
+(ld "experiments/agents/test-mcp-client.lisp")
+
 ;; Use MCP tools for interactive testing
 (mcp_acl2-mcp_evaluate :code "(+ 1 2)")           ; => 3
 (mcp_acl2-mcp_evaluate :code "(car 5)")           ; => guard violation error

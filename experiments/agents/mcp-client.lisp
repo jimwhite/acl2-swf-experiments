@@ -9,6 +9,13 @@
 ; This book provides an MCP client for calling tools on an MCP server
 ; via HTTP (using mcp-proxy or similar HTTP wrapper).
 ; Uses the same oracle-based pattern as llm-client.lisp.
+;
+; DESIGN: The MCP connection encapsulates both:
+;   1. MCP transport session (Mcp-Session-Id header for HTTP transport)
+;   2. ACL2 persistent session (for fast code execution without banner)
+;
+; The agent logic sees only an opaque mcp-connection - no session IDs exposed.
+; To use multiple ACL2 sessions, create multiple mcp-connections.
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
@@ -20,13 +27,14 @@
 (include-book "std/strings/cat" :dir :system)
 (include-book "std/strings/explode-nonnegative-integer" :dir :system)
 (include-book "std/util/bstar" :dir :system)
+(include-book "std/util/define" :dir :system)
+(include-book "centaur/fty/top" :dir :system)
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Configuration
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 ;; Default MCP server endpoint (mcp-proxy or uvx mcp-server-http)
-;; User can override with mcp-call-tool's endpoint parameter
 (defconst *mcp-default-endpoint* 
   "http://localhost:8000/mcp")
 
@@ -34,83 +42,57 @@
 (defconst *mcp-read-timeout* 60)      ; seconds (higher for ACL2 operations)
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;; MCP Connection Type
+;; MCP Connection Type (FTY)
 ;;
-;; An MCP connection holds the endpoint URL and session ID.
-;; The session ID is obtained from the initialize handshake.
+;; An MCP connection encapsulates:
+;;   - endpoint: URL of the MCP server
+;;   - transport-session-id: MCP protocol session (Mcp-Session-Id header)
+;;   - acl2-session-id: Persistent ACL2 process session (for fast execution)
+;;
+;; Agent code treats this as opaque. Multiple connections = multiple sessions.
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
-;; MCP connection: (endpoint . mcp-session-id)
-;; Both are strings; mcp-session-id obtained from initialize response header
+(fty::defprod mcp-connection
+  ((endpoint stringp :default "")
+   (transport-session-id stringp :default "")
+   (acl2-session-id stringp :default ""))
+  :tag :mcp-connection
+  :layout :tree)
 
-(defun mcp-connection-p (x)
-  (declare (xargs :guard t))
-  (and (consp x)
-       (stringp (car x))   ; endpoint URL
-       (stringp (cdr x)))) ; mcp-session-id
+;; Predicate for valid connection (has non-empty endpoint and transport session)
+(define mcp-connection-valid-p ((conn mcp-connection-p))
+  :returns (valid booleanp)
+  (and (not (equal (mcp-connection->endpoint conn) ""))
+       (not (equal (mcp-connection->transport-session-id conn) ""))))
 
-(defun mcp-connection-endpoint (conn)
-  (declare (xargs :guard (mcp-connection-p conn)))
-  (car conn))
-
-(defun mcp-connection-session-id (conn)
-  (declare (xargs :guard (mcp-connection-p conn)))
-  (cdr conn))
-
-(defun make-mcp-connection (endpoint session-id)
-  (declare (xargs :guard (and (stringp endpoint)
-                              (stringp session-id))))
-  (cons endpoint session-id))
-
-(defthm mcp-connection-p-of-make-mcp-connection
-  (implies (and (stringp endpoint)
-                (stringp session-id))
-           (mcp-connection-p (make-mcp-connection endpoint session-id))))
-
-(defthm stringp-of-mcp-connection-endpoint
-  (implies (mcp-connection-p conn)
-           (stringp (mcp-connection-endpoint conn))))
-
-(defthm stringp-of-mcp-connection-session-id
-  (implies (mcp-connection-p conn)
-           (stringp (mcp-connection-session-id conn))))
+;; Check if connection has a persistent ACL2 session
+(define mcp-connection-has-acl2-session-p ((conn mcp-connection-p))
+  :returns (has-session booleanp)
+  (not (equal (mcp-connection->acl2-session-id conn) "")))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; MCP Result Type
 ;;
 ;; MCP tool results contain either content or an error.
+;; We use two separate string fields rather than maybe-stringp for simplicity.
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
-;; Simple result representation: (error-string . content-string)
-;; error-string is nil on success, content-string is the tool output
+(fty::defprod mcp-result
+  ((has-error booleanp :default nil)
+   (error stringp :default "")
+   (content stringp :default ""))
+  :tag :mcp-result
+  :layout :tree)
 
-(defun mcp-result-p (x)
-  (declare (xargs :guard t))
-  (and (consp x)
-       (or (null (car x)) (stringp (car x)))  ; error or nil
-       (stringp (cdr x))))                     ; content
-
-(defun mcp-result-error (result)
-  (declare (xargs :guard (mcp-result-p result)))
-  (car result))
-
-(defun mcp-result-content (result)
-  (declare (xargs :guard (mcp-result-p result)))
-  (cdr result))
-
-(defun make-mcp-result (error content)
-  (declare (xargs :guard (and (or (null error) (stringp error))
-                              (stringp content))))
-  (cons error content))
-
-(defthm mcp-result-p-of-make-mcp-result
-  (implies (and (or (null error) (stringp error))
-                (stringp content))
-           (mcp-result-p (make-mcp-result error content))))
+;; Quick check for success
+(define mcp-result-ok-p ((result mcp-result-p))
+  :returns (ok booleanp)
+  (not (mcp-result->has-error result)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;; JSON-RPC 2.0 Serialization
+;; JSON-RPC 2.0 Serialization Stubs
 ;;
+;; These are replaced by raw Lisp implementations via include-raw.
 ;; MCP uses JSON-RPC 2.0 format:
 ;; Request:  {"jsonrpc":"2.0","method":"tools/call","params":{...},"id":1}
 ;; Response: {"jsonrpc":"2.0","result":{...},"id":1} 
@@ -118,7 +100,6 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 ;; Serialize MCP tool call request to JSON-RPC 2.0
-;; tool-name: string, tool arguments as JSON object string
 (defun serialize-mcp-tool-call (tool-name args-json request-id)
   (declare (xargs :guard (and (stringp tool-name)
                               (stringp args-json)
@@ -131,21 +112,25 @@
   (stringp (serialize-mcp-tool-call tool-name args-json request-id)))
 
 ;; Parse MCP JSON-RPC response, extract result content or error
-;; Returns mcp-result-p: (error . content)
-(defun parse-mcp-response (json)
+;; Returns (cons error-or-nil content-string)
+(defun parse-mcp-response-raw (json)
   (declare (xargs :guard (stringp json))
            (ignore json))
-  (prog2$ (er hard? 'parse-mcp-response "Raw Lisp definition not installed?")
-          (make-mcp-result "Raw Lisp not loaded" "")))
+  (prog2$ (er hard? 'parse-mcp-response-raw "Raw Lisp definition not installed?")
+          (cons "Raw Lisp not loaded" "")))
 
-(defthm mcp-result-p-of-parse-mcp-response
-  (mcp-result-p (parse-mcp-response json)))
+(defthm consp-of-parse-mcp-response-raw
+  (consp (parse-mcp-response-raw json)))
 
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;; MCP Initialize Serialization
-;;
-;; JSON-RPC 2.0 initialize request for MCP transport session
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; Wrapper that returns mcp-result
+(define parse-mcp-response ((json stringp))
+  :returns (result mcp-result-p)
+  (b* ((raw (parse-mcp-response-raw json))
+       (err (car raw))
+       (content (if (stringp (cdr raw)) (cdr raw) "")))
+    (make-mcp-result :has-error (if (stringp err) t nil)
+                     :error (if (stringp err) err "")
+                     :content content)))
 
 ;; Serialize MCP initialize request to JSON-RPC 2.0
 (defun serialize-mcp-initialize (request-id)
@@ -170,14 +155,7 @@
       (stringp (parse-mcp-session-id headers)))
   :rule-classes (:rewrite :type-prescription))
 
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;; Convenience: Serialize simple tool arguments
-;;
-;; For tools with simple string arguments, build JSON object
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-
 ;; Build JSON object from key-value pairs (all string values)
-;; Input: list of (key . value) pairs where both are strings
 (defun serialize-string-args (pairs)
   (declare (xargs :guard (alistp pairs))
            (ignore pairs))
@@ -191,8 +169,7 @@
 ;; Trust tag and raw Lisp inclusion
 ;;
 ;; IMPORTANT: This MUST come before any functions that call the raw Lisp
-;; implementations (like mcp-connect), otherwise the compiled code will
-;; use the logical stub definitions instead of the raw Lisp implementations.
+;; implementations, otherwise compiled code uses logical stubs.
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 (defttag :mcp-client)
@@ -200,208 +177,224 @@
 (include-raw "mcp-client-raw.lsp")
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;; Main API Helpers
+;; Internal Helpers
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 ;; Helper to check if HTTP status indicates success (2xx)
-(defun mcp-http-success-p (status)
-  (declare (xargs :guard (natp status)))
+(define mcp-http-success-p ((status natp))
+  :returns (success booleanp)
   (and (>= status 200)
        (< status 300)))
 
-;; Global request ID counter (incremented per call)
-;; For simplicity, we use a defconst; real impl could use state
+;; Global request ID counter
 (defconst *mcp-request-id* 1)
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;; MCP Connection Establishment
+;; Internal: MCP Transport Connection
 ;;
-;; mcp-connect sends the initialize request and extracts the session ID
-;; from the response headers. This session ID must be included in all
-;; subsequent requests via the Mcp-Session-Id header.
+;; Establishes MCP transport session only (gets Mcp-Session-Id header).
+;; Called by mcp-connect before starting ACL2 session.
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
-(defun mcp-connect (endpoint state)
+(defun mcp-transport-connect (endpoint state)
+  "Establish MCP transport session. Returns (mv err transport-session-id state)."
   (declare (xargs :guard (stringp endpoint)
                   :stobjs state
-                  :guard-hints (("Goal" :in-theory (disable post-json-with-headers)))))
-  (b* (;; Serialize the initialize request
-       (request-json (serialize-mcp-initialize 1))
+                  :mode :program))
+  (b* ((request-json (serialize-mcp-initialize 1))
        (headers '(("Content-Type" . "application/json")
                   ("Accept" . "application/json, text/event-stream")))
        
-       ;; Make HTTP POST request with headers
        ((mv http-err body status-raw response-headers state)
         (post-json-with-headers endpoint request-json headers 
                                 *mcp-connect-timeout* *mcp-read-timeout* state))
        
-       ;; Coerce status to natp for guard
-       (status (mbe :logic (nfix status-raw) :exec status-raw))
+       (status (nfix status-raw))
        
-       ;; Check for HTTP error
        ((when http-err)
-        (mv (str::cat "MCP connect HTTP error: " http-err) nil state))
+        (mv (str::cat "MCP transport HTTP error: " http-err) "" state))
        
-       ;; Check for non-2xx status
        ((unless (mcp-http-success-p status))
-        (mv (concatenate 'string "MCP connect HTTP status " 
+        (mv (concatenate 'string "MCP transport HTTP status " 
                         (coerce (explode-nonnegative-integer status 10 nil) 'string)
                         ": " body) 
-            nil state))
+            "" state))
        
-       ;; Extract session ID from response headers
        (session-id (parse-mcp-session-id response-headers))
        
-       ;; Check we got a session ID
        ((unless session-id)
-        (mv "MCP connect: no Mcp-Session-Id in response headers" nil state)))
+        (mv "MCP transport: no Mcp-Session-Id in response headers" "" state)))
     
-    ;; Success: return connection
-    (mv nil (make-mcp-connection endpoint session-id) state)))
-
-;; Return type theorems for mcp-connect
-(defthm mcp-connection-p-of-mcp-connect
-  (implies (mv-nth 1 (mcp-connect endpoint state))
-           (mcp-connection-p (mv-nth 1 (mcp-connect endpoint state)))))
-
-(defthm state-p1-of-mcp-connect
-  (implies (state-p1 state)
-           (state-p1 (mv-nth 2 (mcp-connect endpoint state)))))
+    (mv nil session-id state)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;; Main API - Tool Calling
+;; Internal: Raw Tool Call
+;;
+;; Low-level tool call using transport session ID directly.
+;; Used internally by mcp-connect to start ACL2 session.
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
-;; Call an MCP tool via HTTP using a connection
-;;
-;; Parameters:
-;;   conn      - MCP connection from mcp-connect (mcp-connection-p)
-;;   tool-name - Name of the tool to call (stringp)  
-;;   args-json - Tool arguments as JSON object string (stringp)
-;;   state     - ACL2 state
-;;
-;; Returns: (mv error content state)
-;;   error   - NIL on success, error string on failure
-;;   content - Tool result content (stringp, empty on error)
-;;   state   - Updated state
-(defun mcp-call-tool-with-json (conn tool-name args-json state)
-  (declare (xargs :guard (and (mcp-connection-p conn)
+(defun mcp-call-tool-raw (endpoint transport-session-id tool-name args state)
+  "Call MCP tool using raw transport session. Returns (mv err content state)."
+  (declare (xargs :guard (and (stringp endpoint)
+                              (stringp transport-session-id)
                               (stringp tool-name)
-                              (stringp args-json))
+                              (alistp args))
                   :stobjs state
-                  :guard-hints (("Goal" :in-theory (disable post-json)))))
-  (b* (;; Extract connection details
-       (endpoint (mcp-connection-endpoint conn))
-       (session-id (mcp-connection-session-id conn))
-       
-       ;; Serialize the request to JSON-RPC 2.0 format
+                  :mode :program))
+  (b* ((args-json (serialize-string-args args))
        (request-json (serialize-mcp-tool-call tool-name args-json *mcp-request-id*))
-       ;; Include session ID and Accept headers
        (headers (list (cons "Content-Type" "application/json")
                       (cons "Accept" "application/json")
-                      (cons "Mcp-Session-Id" session-id)))
+                      (cons "Mcp-Session-Id" transport-session-id)))
        
-       ;; Make HTTP POST request
        ((mv http-err body status-raw state)
         (post-json endpoint request-json headers 
                    *mcp-connect-timeout* *mcp-read-timeout* state))
        
-       ;; Coerce status to natp (it is, via theorem, but help guard verification)
-       (status (mbe :logic (nfix status-raw) :exec status-raw))
+       (status (nfix status-raw))
        
-       ;; Check for HTTP error
        ((when http-err)
         (mv (str::cat "MCP HTTP error: " http-err) "" state))
        
-       ;; Check for non-2xx status
        ((unless (mcp-http-success-p status))
         (mv (concatenate 'string "MCP HTTP status " 
                         (coerce (explode-nonnegative-integer status 10 nil) 'string)
                         ": " body) 
             "" state))
        
-       ;; Parse JSON-RPC response
        (result (parse-mcp-response body)))
     
-    (mv (mcp-result-error result)
-        (mcp-result-content result)
+    (mv (if (mcp-result->has-error result)
+            (mcp-result->error result)
+          nil)
+        (mcp-result->content result)
         state)))
 
-;; Return type theorems
-(defthm stringp-of-mcp-call-tool-with-json-content
-  (stringp (mv-nth 1 (mcp-call-tool-with-json conn tool-name args-json state))))
-
-(defthm state-p1-of-mcp-call-tool-with-json
-  (implies (state-p1 state)
-           (state-p1 (mv-nth 2 (mcp-call-tool-with-json conn tool-name args-json state)))))
-
-;; Convenience: Call MCP tool with string key-value arguments
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; Main API: mcp-connect
 ;;
-;; Parameters:
-;;   conn      - MCP connection from mcp-connect
-;;   tool-name - Name of the tool
-;;   args      - Alist of (string-key . string-value) pairs
-;;   state     - ACL2 state
+;; Creates an MCP connection with:
+;;   1. MCP transport session (for HTTP protocol)
+;;   2. Persistent ACL2 session (for fast code execution)
 ;;
-;; Returns: (mv error content state)
+;; The agent just gets an opaque connection object.
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+(defun mcp-connect (endpoint state)
+  "Connect to MCP server, establish transport and ACL2 sessions.
+   Returns (mv err connection state) where connection is mcp-connection-p."
+  (declare (xargs :guard (stringp endpoint)
+                  :stobjs state
+                  :mode :program))
+  (b* (;; Step 1: Establish MCP transport session
+       ((mv transport-err transport-session-id state)
+        (mcp-transport-connect endpoint state))
+       
+       ((when transport-err)
+        (mv transport-err nil state))
+       
+       ;; Step 2: Start persistent ACL2 session
+       ((mv acl2-err acl2-response state)
+        (mcp-call-tool-raw endpoint transport-session-id "start_session"
+                           (list (cons "name" "mcp-client-session"))
+                           state))
+       
+       ;; Parse ACL2 session ID from response
+       ;; Response format: "Session started successfully. ID: <uuid>"
+       (acl2-session-id
+        (if acl2-err
+            ""  ; Fall back to one-shot mode if session start fails
+          (b* ((id-pos (search "ID: " acl2-response))
+               ((unless id-pos) "")
+               (id-start (+ id-pos 4))
+               ((unless (<= (+ id-start 36) (length acl2-response))) ""))
+            (subseq acl2-response id-start (+ id-start 36)))))
+       
+       ;; Build connection object
+       (conn (make-mcp-connection
+              :endpoint endpoint
+              :transport-session-id transport-session-id
+              :acl2-session-id acl2-session-id)))
+    
+    (mv nil conn state)))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; Main API: Tool Calling
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
 (defun mcp-call-tool (conn tool-name args state)
+  "Call an MCP tool. Returns (mv err content state)."
   (declare (xargs :guard (and (mcp-connection-p conn)
                               (stringp tool-name)
                               (alistp args))
-                  :stobjs state))
-  (let ((args-json (serialize-string-args args)))
-    (mcp-call-tool-with-json conn tool-name args-json state)))
+                  :stobjs state
+                  :mode :program))
+  (mcp-call-tool-raw (mcp-connection->endpoint conn)
+                     (mcp-connection->transport-session-id conn)
+                     tool-name
+                     args
+                     state))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;; ACL2-MCP Specific Convenience Functions
+;; ACL2-MCP Convenience Functions
 ;;
-;; These wrap common acl2-mcp tool calls for verified agent use.
+;; These automatically use the persistent ACL2 session for fast execution.
+;; The session ID is internal - agent code just passes the connection.
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
-;; Evaluate ACL2 code via acl2-mcp
-;;
-;; Parameters:
-;;   conn  - MCP connection from mcp-connect
-;;   code  - ACL2 code to evaluate (stringp)
-;;   state - ACL2 state
-;;
-;; Returns: (mv error result state)
 (defun mcp-acl2-evaluate (conn code state)
+  "Evaluate ACL2 code. Uses persistent session if available."
   (declare (xargs :guard (and (mcp-connection-p conn)
                               (stringp code))
-                  :stobjs state))
-  (mcp-call-tool conn "evaluate" 
-                 (list (cons "code" code))
-                 state))
+                  :stobjs state
+                  :mode :program))
+  (let* ((session-id (mcp-connection->acl2-session-id conn))
+         (args (if (equal session-id "")
+                   (list (cons "code" code))
+                 (list (cons "code" code)
+                       (cons "session_id" session-id)))))
+    (mcp-call-tool conn "evaluate" args state)))
 
-;; Admit ACL2 event (test without saving)
-;;
-;; Parameters:
-;;   conn  - MCP connection from mcp-connect
-;;   code  - ACL2 event to test (stringp)
-;;   state - ACL2 state
-;;
-;; Returns: (mv error result state)
 (defun mcp-acl2-admit (conn code state)
+  "Test if ACL2 event would be admitted. Uses persistent session if available."
   (declare (xargs :guard (and (mcp-connection-p conn)
                               (stringp code))
-                  :stobjs state))
-  (mcp-call-tool conn "admit"
-                 (list (cons "code" code))
-                 state))
+                  :stobjs state
+                  :mode :program))
+  (let* ((session-id (mcp-connection->acl2-session-id conn))
+         (args (if (equal session-id "")
+                   (list (cons "code" code))
+                 (list (cons "code" code)
+                       (cons "session_id" session-id)))))
+    (mcp-call-tool conn "admit" args state)))
 
-;; Prove ACL2 theorem
-;;
-;; Parameters:
-;;   conn  - MCP connection from mcp-connect
-;;   code  - defthm form to prove (stringp)
-;;   state - ACL2 state
-;;
-;; Returns: (mv error result state)
 (defun mcp-acl2-prove (conn code state)
+  "Prove ACL2 theorem. Uses persistent session if available."
   (declare (xargs :guard (and (mcp-connection-p conn)
                               (stringp code))
-                  :stobjs state))
-  (mcp-call-tool conn "prove"
-                 (list (cons "code" code))
-                 state))
+                  :stobjs state
+                  :mode :program))
+  (let* ((session-id (mcp-connection->acl2-session-id conn))
+         (args (if (equal session-id "")
+                   (list (cons "code" code))
+                 (list (cons "code" code)
+                       (cons "session_id" session-id)))))
+    (mcp-call-tool conn "prove" args state)))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; Connection Management
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+(defun mcp-disconnect (conn state)
+  "Clean up MCP connection, ending ACL2 session if active."
+  (declare (xargs :guard (mcp-connection-p conn)
+                  :stobjs state
+                  :mode :program))
+  (let ((session-id (mcp-connection->acl2-session-id conn)))
+    (if (equal session-id "")
+        (mv nil "No ACL2 session to end" state)
+      (mcp-call-tool conn "end_session"
+                     (list (cons "session_id" session-id))
+                     state))))
+

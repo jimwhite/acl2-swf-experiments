@@ -522,8 +522,12 @@ Be concise. Show your reasoning.")
                   (prog2$ (cw "MCP connection failed: ~s0~%" mcp-err)
                     (prog2$ (cw "Code execution disabled.~%")
                       (interactive-chat-loop-aux agent-st model-id nil state)))
-                (prog2$ (cw "MCP connected. Code execution enabled.~%")
-                  (interactive-chat-loop-aux agent-st model-id mcp-conn state))))))))))
+                (prog2$ (cw "MCP connected.~%")
+                  (prog2$ (if (mcp-connection-has-acl2-session-p mcp-conn)
+                              (cw "ACL2 session: ~s0~%" 
+                                  (mcp-connection->acl2-session-id mcp-conn))
+                            (cw "Warning: No persistent ACL2 session (slower mode).~%"))
+                    (interactive-chat-loop-aux agent-st model-id mcp-conn state)))))))))))
 
 ;; To start interactive chat after loading, run:
 ;; (interactive-chat-loop *agent-v1* *model-id* state)
