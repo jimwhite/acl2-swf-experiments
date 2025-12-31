@@ -394,12 +394,22 @@
                  (list (cons "code" code))
                  state))
 
+(defun syntax-error-p (result)
+  "Check if a check_syntax result indicates syntax errors.
+   Returns T if the result starts with 'Syntax errors found:'."
+  (declare (xargs :guard (stringp result)))
+  (let ((prefix "Syntax errors found:"))
+    (and (>= (length result) (length prefix))
+         (equal (subseq result 0 (length prefix)) prefix))))
+
 (defun mcp-acl2-execute (conn code state)
   "Execute ACL2 code block via MCP. Handles multiple forms automatically.
    This is the main entry point for code execution - it:
-   1. Checks syntax first
+   1. Checks syntax first (catches malformed s-expressions)
    2. Sends entire code block to evaluate (which handles multiple forms)
-   Returns (mv err result state)."
+   Returns (mv err result state).
+   If syntax errors are detected, err will be 'SYNTAX-ERROR and result
+   will contain the error message."
   (declare (xargs :guard (and (mcp-connection-p conn)
                               (stringp code))
                   :stobjs state
@@ -407,11 +417,16 @@
   ;; First check syntax
   (mv-let (syntax-err syntax-result state)
     (mcp-acl2-check-syntax conn code state)
-    (if syntax-err
-        ;; Syntax error - return it
-        (mv syntax-err syntax-result state)
-      ;; Syntax OK - evaluate the whole block
-      (mcp-acl2-evaluate conn code state))))
+    (cond
+      ;; MCP call itself failed
+      (syntax-err
+       (mv syntax-err syntax-result state))
+      ;; Syntax check found errors in the code
+      ((syntax-error-p syntax-result)
+       (mv 'syntax-error syntax-result state))
+      ;; Syntax OK - evaluate the whole block  
+      (t
+       (mcp-acl2-evaluate conn code state)))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Connection Management
