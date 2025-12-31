@@ -1,49 +1,44 @@
-; code-exec-demo.lisp - Demo of Safe Code Execution with Verified Agent
+; code-exec-demo.lisp - Demo of ACL2 Code Execution for Verified Agent
 ;
 ; This demonstrates the mini-swe-agent pattern adapted for ACL2:
-; - Agent receives code from LLM in ```acl2 blocks
-; - Code is validated and executed via acl2s-compute
-; - Results are formatted and returned to conversation
+; - Agent receives code from LLM in ```acl2 or ```lisp blocks
+; - Code is extracted and executed via acl2s-compute
+; - Results (success or error) are returned to conversation
 ; - Execute permission is enforced by verified agent
 ;
-; Usage (interactive):
+; Interactive Usage:
 ;   cd /workspaces/acl2-swf-experiments/experiments/agents
 ;   acl2
 ;   (ld "code-exec-demo.lisp")
-;
-; Usage (certification):
-;   cert.pl code-exec-demo
-
-; cert_param: (cert_env "SKIP_INTERACTIVE=1")
+;   :q
+;   (run-demo)
+;   (lp)
 
 (in-package "ACL2")
 
 ;;;============================================================================
-;;; Cell 1: Load the verified agent and code execution
+;;; Part 1: Load Dependencies
 ;;;============================================================================
 
 (include-book "/workspaces/acl2-swf-experiments/experiments/agents/verified-agent")
 (include-book "/workspaces/acl2-swf-experiments/experiments/agents/code-exec"
-              :ttags ((:acl2s-interface) (:code-exec)))
-(include-book "/workspaces/acl2-swf-experiments/experiments/agents/llm-client"
-              :ttags ((:quicklisp) (:quicklisp.osicat) (:quicklisp.dexador) 
-                      (:http-json) (:llm-client)))
+              :ttags :all)
 
 ;;;============================================================================
-;;; Cell 2: Code Execution Tool Specification
+;;; Part 2: Tool Specification for Code Execution
 ;;;============================================================================
 
-;; Define tool spec for ACL2 code execution
-(defconst *acl2-exec-tool*
+;; Define tool spec for ACL2 code execution using verified-agent types
+(defconst *acl2-compute-tool*
   (make-tool-spec
-    :name 'execute-acl2
+    :name 'acl2-compute
     :required-access 0        ; No file access needed
     :requires-execute t       ; REQUIRES execute permission!
-    :token-cost 500           ; Budget for result output
-    :time-cost 30))           ; 30 second timeout
+    :token-cost 200           ; Budget for result output
+    :time-cost 10))           ; 10 second typical
 
 ;;;============================================================================
-;;; Cell 3: Agent States - With and Without Execute Permission
+;;; Part 3: Agent States - With and Without Execute Permission
 ;;;============================================================================
 
 ;; Agent WITH execute permission - can run code
@@ -69,229 +64,212 @@
     :satisfaction 0))
 
 ;;;============================================================================
-;;; Cell 4: Verify Permission Enforcement
+;;; Part 4: Verify Permission Enforcement
 ;;;============================================================================
 
 ;; Check: enabled agent CAN invoke code execution tool
 (defconst *can-exec-enabled*
   (prog2$ (cw "~%Agent with execute=t can invoke tool: ~x0~%"
-              (can-invoke-tool-p *acl2-exec-tool* *exec-enabled-state*))
-          (can-invoke-tool-p *acl2-exec-tool* *exec-enabled-state*)))
+              (can-invoke-tool-p *acl2-compute-tool* *exec-enabled-state*))
+          (can-invoke-tool-p *acl2-compute-tool* *exec-enabled-state*)))
 
 ;; Check: disabled agent CANNOT invoke code execution tool
 (defconst *can-exec-disabled*
   (prog2$ (cw "Agent with execute=nil can invoke tool: ~x0~%"
-              (can-invoke-tool-p *acl2-exec-tool* *exec-disabled-state*))
-          (can-invoke-tool-p *acl2-exec-tool* *exec-disabled-state*)))
+              (can-invoke-tool-p *acl2-compute-tool* *exec-disabled-state*))
+          (can-invoke-tool-p *acl2-compute-tool* *exec-disabled-state*)))
 
 ;; The verified agent PROVES this property statically!
 ;; (See permission-safety theorem in verified-agent.lisp)
 
 ;;;============================================================================
-;;; Cell 5: System Prompt for Code Execution Agent
+;;; Part 5: Test Code Block Extraction
 ;;;============================================================================
 
-(defconst *code-agent-prompt*
+;; Sample LLM response with code blocks
+(defconst *sample-llm-response*
+  "I'll help you with those calculations.
+
+First, let's add some numbers:
+
+```acl2
+(+ 1 2 3 4 5)
+```
+
+Now let's work with lists:
+
+```lisp
+(append '(a b c) '(d e f))
+```
+
+And test a factorial:
+
+```acl2
+(defun fact (n)
+  (if (zp n)
+      1
+    (* n (fact (1- n)))))
+```
+
+That covers the basics!")
+
+;; Test extraction - this runs in logic mode
+(defconst *extracted-blocks*
+  (prog2$ (cw "~%=== Testing Code Block Extraction ===~%")
+    (prog2$ (cw "Sample LLM response:~%~s0~%~%" *sample-llm-response*)
+      (let ((blocks (extract-all-code-blocks *sample-llm-response*)))
+        (prog2$ (cw "Found ~x0 code blocks~%" (len blocks))
+          blocks)))))
+
+;;;============================================================================
+;;; Part 6: System Prompt for Code Execution Agent
+;;;============================================================================
+
+(defconst *code-agent-system-prompt*
   "You are an ACL2 theorem prover assistant with code execution capabilities.
 
 You can execute ACL2 code to:
 1. Evaluate expressions: (+ 1 2), (append '(a b) '(c d))
-2. Define and test functions: (defun f (x) (* x x))
-3. Attempt theorem proofs: (thm (implies (natp x) (integerp x)))
+2. Test functions with examples
+3. Explore ACL2 behavior
 
-When you want to run ACL2 code, wrap it in ```acl2 blocks like this:
-
-```acl2
-(your-acl2-code-here)
-```
-
-The result will be returned to you. You can then:
-- Analyze the output
-- Try variations if something fails
-- Build up to more complex proofs
-
-IMPORTANT: Code execution is sandboxed. You cannot:
-- Make system calls
-- Load external files
-- Modify trust tags
-- Access raw Lisp
-
-Be precise with ACL2 syntax. Common mistakes:
-- Missing quotes: '(1 2 3) not (1 2 3)
-- Wrong function names: append not concat
-- Guard violations: (+ 1 'a) will fail")
-
-;;;============================================================================
-;;; Cell 6: Code Extraction Pattern (like mini-swe-agent)
-;;;============================================================================
-
-;; Extract ACL2 code from markdown code blocks
-;; Pattern: ```acl2\n...\n```
-(defun extract-acl2-code-block (response start)
-  "Extract code between ```acl2 and ``` markers starting from position START.
-   Returns (mv found-p code end-pos)"
-  (declare (xargs :guard (and (stringp response) (natp start))
-                  :mode :program))
-  (let* ((marker-start "```acl2")
-         (marker-end "```")
-         (block-start (search marker-start response :start2 start)))
-    (if (null block-start)
-        (mv nil "" (length response))
-      (let* ((code-start (+ block-start (length marker-start)))
-             ;; Skip newline after marker
-             (code-start (if (and (< code-start (length response))
-                                  (eql (char response code-start) #\Newline))
-                             (1+ code-start)
-                           code-start))
-             (block-end (search marker-end response :start2 code-start)))
-        (if (null block-end)
-            (mv nil "" (length response))
-          (mv t 
-              (subseq response code-start block-end)
-              (+ block-end (length marker-end))))))))
-
-;; Helper function - must be defined before extract-all-acl2-blocks
-(defun extract-all-acl2-blocks-aux (response pos acc)
-  (declare (xargs :mode :program))
-  (if (>= pos (length response))
-      (reverse acc)
-    (mv-let (found-p code end-pos)
-      (extract-acl2-code-block response pos)
-      (if found-p
-          (extract-all-acl2-blocks-aux response end-pos (cons code acc))
-        (reverse acc)))))
-
-;; Extract all ACL2 code blocks from response
-(defun extract-all-acl2-blocks (response)
-  "Extract all ```acl2 blocks from response. Returns list of code strings."
-  (declare (xargs :mode :program))
-  (extract-all-acl2-blocks-aux response 0 nil))
-
-;;;============================================================================
-;;; Cell 7: Interactive Demo Functions (skipped during cert)
-;;;============================================================================
-
-;; Helper to print blocks
-#-skip-interactive
-(defun print-blocks (blocks n)
-  (declare (xargs :mode :program))
-  (if (endp blocks)
-      nil
-    (prog2$ (cw "  Block ~x0: ~s1~%" n (car blocks))
-            (print-blocks (cdr blocks) (1+ n)))))
-
-#-skip-interactive
-(defun demo-extract-code ()
-  "Demo the code extraction"
-  (declare (xargs :mode :program))
-  (let ((test-response "Here's how to add numbers:
+When you want to run ACL2 code, wrap it in code blocks like:
 
 ```acl2
-(+ 1 2 3)
+(your-code-here)
 ```
 
-And here's list append:
+or:
 
-```acl2
-(append '(a b) '(c d))
+```lisp
+(your-code-here)
 ```
 
-That's it!"))
-    (prog2$ (cw "~%Extracting code blocks from LLM response...~%")
-      (prog2$ (cw "Response: ~s0~%~%" test-response)
-        (let ((blocks (extract-all-acl2-blocks test-response)))
-          (prog2$ (cw "Found ~x0 code blocks:~%" (len blocks))
-            (prog2$ (print-blocks blocks 1)
-              blocks)))))))
+The result will be returned to you showing either:
+- Success: Result: <value>
+- Error: Error message explaining what went wrong
 
-#-skip-interactive
-(defconst *demo-extraction*
-  (demo-extract-code))
+Use the error messages to learn and fix your code.
+
+TIPS:
+- Quote literal lists: '(1 2 3) not (1 2 3)
+- ACL2 is case-insensitive
+- Guard violations mean type mismatches
+- Use natp, integerp, etc. to check types")
 
 ;;;============================================================================
-;;; Cell 8: Execute Code Blocks (Program Mode, requires raw Lisp)
+;;; Part 7: Demo Function (Run from Raw Lisp)
 ;;;============================================================================
 
-;; This function would be called from raw Lisp to execute extracted code
 #||
-Example raw Lisp usage:
+To run this demo:
 
-(defun execute-code-blocks (blocks)
-  "Execute a list of ACL2 code strings, return list of results"
-  (loop for block in blocks
-        collect (execute-acl2-code block)))
+1. Load the file:
+   (ld "code-exec-demo.lisp")
 
-;; Full agent step:
-(defun agent-code-step (response)
-  "Process LLM response: extract and execute code blocks"
-  (let ((blocks (extract-all-acl2-blocks response)))
-    (if (null blocks)
-        "No code blocks found in response."
-      (format nil "~{~A~%~}" (execute-code-blocks blocks)))))
+2. Drop to raw Lisp:
+   :q
+
+3. Run the demo:
+   (run-demo)
+
+4. Return to ACL2:
+   (lp)
 ||#
 
+;; This function must be called from raw Lisp (after :q)
+;; It demonstrates the full code execution flow
+(defun run-demo ()
+  "Run interactive demo of code execution. Call from raw Lisp."
+  (format t "~%~%========================================~%")
+  (format t "ACL2 Code Execution Demo~%")
+  (format t "========================================~%~%")
+  
+  ;; Test 1: Simple arithmetic
+  (format t "Test 1: Simple arithmetic~%")
+  (format t "Code: (+ 1 2 3)~%")
+  (format t "~A~%~%" (execute-code "(+ 1 2 3)"))
+  
+  ;; Test 2: List operations
+  (format t "Test 2: List operations~%")
+  (format t "Code: (append '(a b) '(c d))~%")
+  (format t "~A~%~%" (execute-code "(append '(a b) '(c d))"))
+  
+  ;; Test 3: Error case - guard violation
+  (format t "Test 3: Error case (guard violation)~%")
+  (format t "Code: (car 5)~%")
+  (format t "~A~%~%" (execute-code "(car 5)"))
+  
+  ;; Test 4: Error case - undefined function
+  (format t "Test 4: Error case (undefined function)~%")
+  (format t "Code: (my-undefined-function 42)~%")
+  (format t "~A~%~%" (execute-code "(my-undefined-function 42)"))
+  
+  ;; Test 5: Extract and execute from LLM response
+  (format t "Test 5: Extract code blocks from LLM response~%")
+  (let* ((response "Let me calculate: ```acl2
+(* 6 7)
+``` That should give us 42.")
+         (blocks (extract-all-code-blocks response)))
+    (format t "Response: ~S~%" response)
+    (format t "Extracted blocks: ~S~%" blocks)
+    (when blocks
+      (format t "Executing first block:~%")
+      (format t "~A~%" (execute-code (car blocks)))))
+  
+  ;; Test 6: Both ```acl2 and ```lisp fences
+  (format t "~%Test 6: Both fence types~%")
+  (let* ((response "
+```acl2
+(+ 10 20)
+```
+
+```lisp
+(length '(a b c d e))
+```
+")
+         (results (execute-code-blocks response)))
+    (format t "Response with both fence types:~%")
+    (format t "Results:~%")
+    (dolist (r results)
+      (format t "  Code: ~S~%" (car r))
+      (format t "  ~A~%~%" (cdr r))))
+  
+  (format t "========================================~%")
+  (format t "Demo Complete!~%")
+  (format t "========================================~%")
+  t)
+
 ;;;============================================================================
-;;; Cell 9: Example Agent Flow
+;;; Part 8: Permission Safety Verification
 ;;;============================================================================
 
-;; This shows the intended flow (pseudo-code):
+;; The key theorem from verified-agent.lisp guarantees:
+;; If can-invoke-tool-p returns T, permission requirements are satisfied
 ;;
-;; 1. User asks: "What's the sum of 1 through 10?"
-;; 2. LLM responds with:
-;;    "Let me calculate that:
-;;    ```acl2
-;;    (loop$ for i from 1 to 10 sum i)
-;;    ```"
-;; 3. Agent extracts code block
-;; 4. Agent checks: (can-invoke-tool-p *acl2-exec-tool* agent-state)
-;; 5. If allowed, execute via (execute-acl2-code "(loop$ ...)")
-;; 6. Add result to conversation as tool message
-;; 7. LLM sees: "RESULT: 55"
-;; 8. LLM responds: "The sum of 1 through 10 is 55."
+;; For *acl2-compute-tool*: requires-execute = T
+;; So can-invoke-tool-p only succeeds when execute-allowed = T
 
-;;;============================================================================
-;;; Cell 10: Proof that Permission Enforcement Works
-;;;============================================================================
-
-;; The key theorem from verified-agent.lisp applies here:
-;; 
-;; (defthm permission-safety
-;;   (implies (and (tool-spec-p tool)
-;;                 (agent-state-p st)
-;;                 (can-invoke-tool-p tool st))
-;;            (tool-permitted-p tool st)))
-;;
-;; This means: if can-invoke-tool-p returns T, then the tool's
-;; permission requirements are DEFINITELY satisfied.
-;;
-;; For code execution: requires-execute = T
-;; So can-invoke-tool-p only returns T when execute-allowed = T
-
-;; Verify this statically:
-(defconst *proof-check*
-  (prog2$ (cw "~%=== Permission Enforcement Verification ===~%")
+(defconst *permission-check*
+  (prog2$ (cw "~%=== Permission Safety Verification ===~%")
     (prog2$ (cw "Tool requires execute: ~x0~%" 
-                (tool-spec->requires-execute *acl2-exec-tool*))
-      (prog2$ (cw "Enabled agent (execute=t): can-invoke = ~x0~%"
-                  (can-invoke-tool-p *acl2-exec-tool* *exec-enabled-state*))
-        (prog2$ (cw "Disabled agent (execute=nil): can-invoke = ~x0~%"
-                    (can-invoke-tool-p *acl2-exec-tool* *exec-disabled-state*))
-          (prog2$ (cw "Permission safety PROVEN by ACL2!~%")
-            t))))))
+                (tool-spec->requires-execute *acl2-compute-tool*))
+      (prog2$ (cw "Enabled agent: can-invoke = ~x0~%"
+                  (can-invoke-tool-p *acl2-compute-tool* *exec-enabled-state*))
+        (prog2$ (cw "Disabled agent: can-invoke = ~x0~%"
+                    (can-invoke-tool-p *acl2-compute-tool* *exec-disabled-state*))
+          (cw "Permission safety PROVEN by ACL2 theorem!~%"))))))
 
 ;;;============================================================================
-;;; Summary
+;;; Part 9: Summary
 ;;;============================================================================
 
-(defconst *demo-complete*
-  (prog2$ (cw "~%~%========================================~%")
-    (prog2$ (cw "Code Execution Demo Complete!~%")
+(defconst *demo-loaded*
+  (prog2$ (cw "~%========================================~%")
+    (prog2$ (cw "Code Execution Demo Loaded~%")
       (prog2$ (cw "========================================~%")
-        (prog2$ (cw "~%Key points:~%")
-          (prog2$ (cw "  1. Code extracted from ```acl2 blocks~%")
-            (prog2$ (cw "  2. Executed via acl2s-compute (sandboxed)~%")
-              (prog2$ (cw "  3. Security: forbidden ops blocked~%")
-                (prog2$ (cw "  4. Permission: requires execute-allowed=t~%")
-                  (prog2$ (cw "  5. All enforced by verified agent theorems~%")
-                    t))))))))))
-
+        (prog2$ (cw "~%To run the interactive demo:~%")
+          (prog2$ (cw "  :q~%")
+            (prog2$ (cw "  (run-demo)~%")
+              (prog2$ (cw "  (lp)~%~%")
+                t))))))))

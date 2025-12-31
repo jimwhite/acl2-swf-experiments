@@ -498,9 +498,170 @@ Verified context length management following mini-swe-agent's pattern but with A
 
 ---
 
-## MCP Integration (Phase 1.7 - Planned)
+## Code Execution (Phase 1.8)
 
-After context management is working, add MCP tool calls for Oxigraph and Qdrant using the same HTTP/JSON-RPC pattern.
+### Overview
+
+Code execution enables the verified agent to run ACL2 expressions provided by the LLM, similar to how mini-swe-agent executes bash commands. This uses the `acl2s-compute` function from the ACL2s interface books, which provides safe evaluation with error handling.
+
+### Design Principles
+
+1. **Use existing ACL2s interface** — `acl2s-compute` provides safe execution with error catching
+2. **No custom wrappers** — The ACL2s books handle all plumbing
+3. **Return useful errors** — Captured output includes error messages for LLM learning
+4. **Recognize code fences** — Extract code from both ` ```acl2` and ` ```lisp` markdown blocks
+5. **Permission enforcement** — Agent's `execute-allowed` controls code execution access
+
+### ACL2s Interface Functions
+
+From `acl2s/interface/top`:
+
+| Function | Purpose | Return Value |
+|----------|---------|--------------|
+| `acl2s-compute` | Evaluate single-value expressions | `(error-flag value)` |
+| `acl2s-query` | Error-triple queries (thm, test?) | `(error-flag value)` |
+| `acl2s-event` | World-modifying events (defun, defthm) | `(error-flag nil)` |
+
+**For Phase 1.8, only `acl2s-compute` is needed.** The LLM will use it for calculations.
+
+### Return Value Format
+
+```lisp
+;; Success: (nil value)
+(acl2s-interface::acl2s-compute '(+ 1 2))  
+;; => (NIL 3)
+
+;; Error: (t nil) with captured output containing error message
+(acl2s-interface::acl2s-compute '(+ 1 '(1 2)) :capture-output t)
+;; => (T NIL)
+;; (acl2s-interface::get-captured-output) => "HARD ACL2 ERROR..."
+```
+
+### Implementation
+
+#### Files to Delete
+
+- **code-exec-raw.lsp** — Unnecessary custom wrappers duplicating ACL2s functionality
+
+#### Files to Rewrite
+
+**code-exec.lisp** — Simplified to use ACL2s interface directly:
+
+```lisp
+(in-package "ACL2")
+
+;; Include ACL2s interface (provides acl2s-compute)
+(include-book "acl2s/interface/top" :dir :system :ttags :all)
+
+;; Constants
+(defconst *code-fence-acl2* "```acl2")
+(defconst *code-fence-lisp* "```lisp")
+(defconst *code-fence-end* "```")
+
+;; Extract code blocks from LLM response
+;; Returns list of code strings found in ```acl2 or ```lisp blocks
+(defun extract-code-blocks (text) ...)
+
+;; Execute code and format result for LLM
+;; Returns string: "Result: <value>" or "Error: <message>"
+(defun execute-and-format (code-str)
+  (b* (;; Parse string to form
+       ((mv err form) (parse-code-string code-str))
+       ((when err) (format-error err))
+       ;; Execute with output capture
+       (- (acl2s-interface::capture-output-on))
+       (result (acl2s-interface::acl2s-compute form :quiet t :capture-output t))
+       (output (acl2s-interface::get-captured-output))
+       ;; Format result
+       (err-flag (first result))
+       (value (second result)))
+    (if err-flag
+        (format-error-with-output output)
+      (format-success value))))
+```
+
+#### Key Functions
+
+| Function | Purpose |
+|----------|---------|
+| `extract-code-blocks` | Find ` ```acl2` and ` ```lisp` blocks in text |
+| `parse-code-string` | Convert string to S-expression |
+| `execute-and-format` | Call `acl2s-compute`, format result |
+| `format-success` | Format successful result for LLM |
+| `format-error-with-output` | Include captured error in response |
+
+### Code Block Extraction
+
+The agent processes LLM responses containing markdown code blocks:
+
+```markdown
+I'll calculate that for you:
+
+` ` `acl2
+(+ (* 3 4) 5)
+` ` `
+
+This evaluates to 17.
+```
+
+Extraction finds both ` ```acl2` and ` ```lisp` fences (some LLMs use generic `lisp`).
+
+### Error Handling
+
+When `acl2s-compute` returns `(t nil)` (error), the captured output contains the ACL2 error message. This is formatted and returned to the LLM so it can learn from failures:
+
+```
+Error: Guard violation in call (+ 1 '(1 2))
+The guard for + requires both arguments to be numbers.
+Received: 1 and (1 2)
+```
+
+### Tool Specification
+
+```lisp
+(defconst *acl2-compute-tool*
+  (make-tool-spec
+    :name 'acl2-compute
+    :required-access 0        ; No file access needed
+    :requires-execute t       ; Requires execute permission
+    :token-cost 200           ; Budget for result
+    :time-cost 10))           ; 10 second typical
+```
+
+### Integration with Verified Agent
+
+The agent's `execute-allowed` field controls whether code execution is permitted:
+
+```lisp
+;; Check before executing
+(when (can-invoke-tool-p *acl2-compute-tool* agent-state)
+  (execute-and-format code-str))
+```
+
+This leverages the existing permission model with the proven `permission-safety` theorem.
+
+### Testing
+
+```lisp
+;; Load interface
+(include-book "acl2s/interface/top" :dir :system :ttags :all)
+
+;; Test computation
+(acl2s-interface::acl2s-compute '(append '(1 2) '(3 4)))
+;; => (NIL (1 2 3 4))
+
+;; Test error capture
+(acl2s-interface::acl2s-compute '(car 5) :capture-output t)
+;; => (T NIL)
+(acl2s-interface::get-captured-output)
+;; => "HARD ACL2 ERROR..."
+```
+
+---
+
+## MCP Integration (Phase 1.9 - Planned)
+
+After code execution is working, add MCP tool calls for Oxigraph and Qdrant using the same HTTP/JSON-RPC pattern. The ACL2-MCP server can also be integrated for richer ACL2 interaction.
 
 ---
 
@@ -741,6 +902,10 @@ experiments/agents/
 ├── llm-client-raw.lsp       # JSON serialization (v1.1)
 ├── llm-client.acl2          # Cert setup with ttags (v1.1)
 ├── http-json.lisp           # HTTP POST utilities
+├── code-exec.lisp           # Code execution via acl2s-compute (v1.8)
+├── code-exec.acl2           # Cert setup with ttags
+├── code-exec-demo.lisp      # Demo/test for code execution
+├── code-exec-raw.lsp        # TO DELETE - replaced by acl2s interface
 └── (future)
     ├── verified-agent-v2.lisp   # With facts/goals
     ├── mcp-client.lisp          # MCP JSON-RPC client
@@ -937,6 +1102,18 @@ ACL2's `ceiling` can cause proof difficulties with natural number bounds. Use `t
 ---
 
 ## Changelog
+
+### v1.4 (2025-12-31)
+- **Code Execution (Phase 1.8)** — ACL2 code execution via `acl2s-compute`
+  - Simplified implementation using ACL2s interface books directly
+  - Deleted `code-exec-raw.lsp` (unnecessary custom wrappers)
+  - Rewrote `code-exec.lisp` to use `acl2s-interface::acl2s-compute`
+  - Extract code from both ` ```acl2` and ` ```lisp` markdown blocks
+  - Error messages captured and returned to LLM for learning
+  - Integrates with verified agent's `execute-allowed` permission
+  - Tool specification: `*acl2-compute-tool*` with `:requires-execute t`
+- **Key insight:** ACL2s books provide complete plumbing—no custom raw Lisp needed
+- Updated MCP Integration to Phase 1.9 (after code execution)
 
 ### v1.3 (2025-12-30)
 - **Context Management (Phase 1.6)** — Verified conversation history with context length management
