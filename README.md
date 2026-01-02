@@ -1,6 +1,6 @@
 # ACL2 Experiments
 
-A collection of theorem-proving experiments using the [ACL2](https://www.cs.utexas.edu/~moore/acl2/) automated reasoning system. This repository works through fundamental theorems from [Software Foundations Volume 1: Logical Foundations](https://softwarefoundations.cis.upenn.edu/lf-current/), adapting Coq proofs to ACL2.
+A collection of theorem-proving experiments using the [ACL2](https://www.cs.utexas.edu/~moore/acl2/) automated reasoning system. This repository works through fundamental theorems from [Software Foundations](https://softwarefoundations.cis.upenn.edu/lf-current/) (Volume 1: Logical Foundations), translated from Coq to ACL2.
 
 ## Project Goals
 
@@ -37,8 +37,7 @@ experiments/
 │   └── experiment-04-natural-numbers-correctness.lisp  (encoding correctness proofs)
 ├── lists/                   Chapters 4-5: List theorems and higher-order functions
 │   ├── experiment-01-list-basics.lisp                  (reverse, append properties)
-│   ├── experiment-02-higher-order.lisp                 (map, filter, fold theorems)
-│   └── experiment-02-higher-order-product.lisp         (advanced fold theorem)
+│   └── experiment-02-higher-order.lisp                 (map, filter, fold theorems)
 ├── challenge-problems.lisp  6 genuine challenge problems from SWF (3-4 stars)
 └── trivial-swf-exercises.lisp  SWF challenges proved automatically by ACL2
 
@@ -50,16 +49,22 @@ notes/                       Documentation and learning resources
 
 ### Advanced Proof Techniques
 
-**[fold-product-append](experiments/lists/experiment-02-higher-order-product.lisp)** - Demonstrates selective theory control
+**[fold-product-append](experiments/lists/experiment-02-higher-order.lisp)** - Demonstrates selective theory control  
+Lines 177-187: Proof that disabling commutativity can simplify arithmetic reasoning
+
 ```lisp
 ;; Proving: fold-product(l1 ++ l2) = fold-product(l1) * fold-product(l2)
-;; Challenge: ACL2's arithmetic rewriter normalizes too aggressively
-;; Solution: Disable commutativity during induction, re-enable strategically
-:hints (("Goal" :in-theory (e/d (fold-product) (commutativity-of-*)))
-        ("Subgoal *1/3''" :in-theory (enable commutativity-of-* associativity-of-*)))
+;; This proof requires only associativity, not commutativity
+;; Disabling commutativity prevents incompatible canonical forms
+(defthm fold-product-append
+  (implies (and (nat-listp l1) (nat-listp l2))
+           (equal (fold-product (append l1 l2))
+                  (* (fold-product l1) (fold-product l2))))
+  :hints (("Goal" :in-theory (disable commutativity-of-*))))
 ```
 
 **[List reverse theorems](experiments/lists/experiment-01-list-basics.lisp)** - Working with underlying primitives
+
 ```lisp
 ;; Challenge: reverse is defined as (revappend x nil)
 ;; Solution: Prove helper lemmas about revappend first
@@ -67,6 +72,7 @@ notes/                       Documentation and learning resources
 ```
 
 **[Natural numbers encoding](experiments/arithmetic/experiment-04-natural-numbers.lisp)** - Custom data structures
+
 ```lisp
 ;; Custom Peano naturals using cons pairs
 ;; Proves correctness theorems linking custom encoding to built-in operations
@@ -85,7 +91,7 @@ notes/                       Documentation and learning resources
 
 ## Proof Techniques Demonstrated
 
-1. **Selective Theory Control** - Managing ACL2's rewriter with `:in-theory (e/d ...)`
+1. **Selective Theory Control** - Managing ACL2's rewriter with `:in-theory (e/d ...)`  
    - Preventing over-normalization while preserving necessary rules
    - Strategic enabling/disabling at specific subgoals
 
@@ -250,4 +256,4 @@ BSD 3-Clause License - see [LICENSE](LICENSE) file for details.
 
 ---
 
-**About This Project**: This repository represents a systematic exploration of theorem proving fundamentals through ACL2. Rather than building a single large verified system, it focuses on learning proof techniques through focused experiments. Each file is designed to be readable and educational, with detailed comments explaining proof strategies.
+**About This Project**: This repository represents a systematic exploration of theorem proving fundamentals through ACL2. Rather than building a single large verified system, it focuses on learning proof techniques, understanding automation, and building a library of reusable patterns.
