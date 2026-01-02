@@ -62,6 +62,53 @@ Higher-order function theorems:
 **Key techniques learned**: Helper lemmas about `revappend`, concrete types instead of polymorphism
 **Note**: `fold-product-append` theorem commented out - needs complex arithmetic lemmas
 
+### 🎯 Challenge Problems (3-4 star exercises from Chapters 2-5)
+
+**Real Challenges** (require non-trivial proof effort in ACL2):
+
+1. [ ] **Binary Numbers** ★★★★ HARD (4 theorems) - Induction chapter
+   - Custom data type requires termination proofs
+   - Round-trip conversion, normalization, arithmetic
+
+2. [ ] **Function Injectivity** ★★★☆ MODERATE (2 theorems) - Lists chapter
+   - Reverse is injective, involution implies injectivity
+   - Good warm-up challenge
+
+**Total: 6 genuine challenge theorems**
+**Location**: `experiments/challenge-problems.lisp`
+
+---
+
+**Trivial Exercises** (solved automatically by ACL2 with 0 hints):
+- [x] **Bag Operations** ★☆☆☆ - 3 theorems PROVED automatically
+- [x] **List Interleaving** ★☆☆☆ - 2 PROVED automatically, 1 FALSE
+- [x] **Peano Natural Numbers** ★☆☆☆ - Even commutativity proved automatically!
+- [x] **Permutation Relation** ★☆☆☆ - Reflexivity proved automatically
+
+**Location**: `experiments/trivial-swf-exercises.lisp`
+
+**Value**: Demonstrates amazing power of ACL2's automation
+
+---
+
+**Excluded** (can't be properly encoded in ACL2):
+- Church Numerals - Requires polymorphic higher-order functions
+- Currying/Uncurrying - Requires lambdas in theorem statements
+
+---
+
+**Status**: ✅ CORRECTED after empirical testing
+**Critical lesson learned**: Custom encodings DON'T automatically bypass automation!
+**Key insights**:
+- ACL2's induction heuristics work on ANY structurally recursive definition
+- Peano arithmetic with custom types: Still TRIVIAL (proved automatically)
+- Permutation with computational definition: TRIVIAL (proved automatically)
+- What matters: **REASONING COMPLEXITY**, not built-in vs custom types
+- Only Binary Numbers genuinely hard (due to termination complexity, not type)
+- Function Injectivity moderate (requires bidirectional reasoning)
+
+**Recommendation**: Focus on the 6 genuinely hard problems in challenge-problems.lisp
+
 ### 📋 Chapter 7: Logic
 
 Logical connectives and reasoning:

@@ -1,0 +1,25 @@
+{
+  "permissions": {
+    "allow": [
+      "mcp__acl2__start_session",
+      "mcp__acl2__list_sessions",
+      "mcp__acl2__end_session",
+      "mcp__acl2__evaluate",
+      "mcp__acl2__check_syntax",
+      "mcp__acl2__admit",
+      "mcp__acl2__prove",
+      "mcp__acl2__retry_proof",
+      "mcp__acl2__certify_book",
+      "mcp__acl2__include_book",
+      "mcp__acl2__query_event",
+      "mcp__acl2__get_world_state",
+      "mcp__acl2__verify_guards",
+      "mcp__acl2__check_theorem",
+      "mcp__acl2__undo",
+      "mcp__acl2__save_checkpoint",
+      "mcp__acl2__restore_checkpoint"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}

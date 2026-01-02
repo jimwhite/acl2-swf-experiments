@@ -19,6 +19,7 @@
 
 # IDE and tool directories
 .claude/
+!.claude/settings.json
 
 # Temporary files
 /tmp/
