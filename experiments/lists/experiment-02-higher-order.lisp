@@ -1,151 +1,178 @@
+; Higher-Order Functions for Lists
+; Based on Software Foundations Chapter 5: Polymorphism (Poly)
+;
+; This file explores higher-order functions (map, filter, fold) in ACL2.
+; Since ACL2 is fundamentally first-order, we'll work with concrete types
+; rather than true polymorphism. We'll use lists of natural numbers as our
+; primary example type.
+
 (in-package "ACL2")
 
-; This experiment explores higher-order functions in ACL2, specifically fold operations.
-; We implement fold-left and fold-right, and explore their properties.
+;;; ==========================================================================
+;;; Map: Apply a function to every element of a list
+;;; ==========================================================================
 
-; Basic list predicates
-(defun nat-listp (l)
-  (if (consp l)
-      (and (natp (car l))
-           (nat-listp (cdr l)))
-    (null l)))
+; map-inc: Increment every element in a list
+(defun map-inc (l)
+  (declare (xargs :guard (nat-listp l)))
+  (if (endp l)
+      nil
+      (cons (+ 1 (car l))
+            (map-inc (cdr l)))))
 
-; fold-left: process list from left to right
-; (fold-left f init '(a b c)) = (f (f (f init a) b) c)
-(defun fold-left (f acc l)
-  (if (consp l)
-      (fold-left f (funcall f acc (car l)) (cdr l))
-    acc))
+; map-square: Square every element in a list
+(defun map-square (l)
+  (declare (xargs :guard (nat-listp l)))
+  (if (endp l)
+      nil
+      (cons (* (car l) (car l))
+            (map-square (cdr l)))))
 
-; fold-right: process list from right to left
-; (fold-right f init '(a b c)) = (f a (f b (f c init)))
-(defun fold-right (f l acc)
-  (if (consp l)
-      (funcall f (car l) (fold-right f (cdr l) acc))
-    acc))
+; General map for natural numbers (ACL2 doesn't have first-class functions,
+; so we'll prove properties about specific map instances)
+; For pedagogical purposes, we'll define a generic pattern that specific
+; maps follow.
 
-; Example: sum using fold-left
+;;; ==========================================================================
+;;; Filter: Keep only elements satisfying a predicate
+;;; ==========================================================================
+
+; filter-even: Keep only even numbers
+(defun filter-even (l)
+  (declare (xargs :guard (nat-listp l)))
+  (if (endp l)
+      nil
+      (if (evenp (car l))
+          (cons (car l) (filter-even (cdr l)))
+          (filter-even (cdr l)))))
+
+; filter-odd: Keep only odd numbers
+(defun filter-odd (l)
+  (declare (xargs :guard (nat-listp l)))
+  (if (endp l)
+      nil
+      (if (oddp (car l))
+          (cons (car l) (filter-odd (cdr l)))
+          (filter-odd (cdr l)))))
+
+;;; ==========================================================================
+;;; Fold: Reduce a list to a single value
+;;; ==========================================================================
+
+; fold-sum: Sum all elements in a list (fold with + and 0)
 (defun fold-sum (l)
-  (fold-left (lambda (acc x) (+ acc x)) 0 l))
+  (declare (xargs :guard (nat-listp l)))
+  (if (endp l)
+      0
+      (+ (car l) (fold-sum (cdr l)))))
 
-; Example: product using fold-left
+; fold-product: Multiply all elements in a list (fold with * and 1)
 (defun fold-product (l)
-  (fold-left (lambda (acc x) (* acc x)) 1 l))
+  (declare (xargs :guard (nat-listp l)))
+  (if (endp l)
+      1
+      (* (car l) (fold-product (cdr l)))))
 
-; Example: reverse using fold-left
-(defun fold-reverse (l)
-  (fold-left (lambda (acc x) (cons x acc)) nil l))
+; fold-length: Count elements using fold pattern
+(defun fold-length (l)
+  (declare (xargs :guard (true-listp l)))
+  (if (endp l)
+      0
+      (+ 1 (fold-length (cdr l)))))
 
-; Properties of fold-left with addition
+;;; ==========================================================================
+;;; Theorems about Map
+;;; ==========================================================================
 
-; Theorem: fold-sum of a single element
-(defthm fold-sum-singleton
-  (equal (fold-sum (list x))
-         (+ 0 x)))
+; Theorem: map preserves length
+(defthm map-inc-preserves-length
+  (equal (len (map-inc l))
+         (len l)))
 
-; Theorem: fold-sum distributes over append
+(defthm map-square-preserves-length
+  (equal (len (map-square l))
+         (len l)))
+
+; Theorem: map distributes over append
+(defthm map-inc-append
+  (equal (map-inc (append l1 l2))
+         (append (map-inc l1) (map-inc l2))))
+
+(defthm map-square-append
+  (equal (map-square (append l1 l2))
+         (append (map-square l1) (map-square l2))))
+
+; Theorem: map_rev - map distributes over reverse
+; This is the key theorem from Software Foundations Poly chapter
+; We need helper lemmas about revappend first
+
+; Helper: map-inc distributes over revappend
+(defthm map-inc-revappend
+  (equal (map-inc (revappend l1 l2))
+         (revappend (map-inc l1) (map-inc l2))))
+
+(defthm map-inc-rev
+  (equal (map-inc (reverse l))
+         (reverse (map-inc l))))
+
+; Helper: map-square distributes over revappend
+(defthm map-square-revappend
+  (equal (map-square (revappend l1 l2))
+         (revappend (map-square l1) (map-square l2))))
+
+(defthm map-square-rev
+  (equal (map-square (reverse l))
+         (reverse (map-square l))))
+
+;;; ==========================================================================
+;;; Theorems about Filter
+;;; ==========================================================================
+
+; Theorem: filter preserves or reduces length
+(defthm filter-even-length-bound
+  (<= (len (filter-even l)) (len l))
+  :rule-classes :linear)
+
+(defthm filter-odd-length-bound
+  (<= (len (filter-odd l)) (len l))
+  :rule-classes :linear)
+
+; Theorem: filtering twice is idempotent
+(defthm filter-even-idempotent
+  (implies (nat-listp l)
+           (equal (filter-even (filter-even l))
+                  (filter-even l))))
+
+(defthm filter-odd-idempotent
+  (implies (nat-listp l)
+           (equal (filter-odd (filter-odd l))
+                  (filter-odd l))))
+
+; Theorem: filter and append
+(defthm filter-even-append
+  (equal (filter-even (append l1 l2))
+         (append (filter-even l1) (filter-even l2))))
+
+(defthm filter-odd-append
+  (equal (filter-odd (append l1 l2))
+         (append (filter-odd l1) (filter-odd l2))))
+
+;;; ==========================================================================
+;;; Theorems about Fold
+;;; ==========================================================================
+
+; Theorem: fold-length is equivalent to built-in len
+(defthm fold-length-correct
+  (implies (true-listp l)
+           (equal (fold-length l)
+                  (len l))))
+
+; Theorem: fold-sum of append is sum of fold-sums
 (defthm fold-sum-append
   (implies (and (nat-listp l1)
                 (nat-listp l2))
            (equal (fold-sum (append l1 l2))
                   (+ (fold-sum l1) (fold-sum l2)))))
-
-; Helper lemmas for nat-listp
-(defthm nat-listp-append
-  (implies (and (nat-listp l1)
-                (nat-listp l2))
-           (nat-listp (append l1 l2))))
-
-(defthm nat-listp-implies-true-listp
-  (implies (nat-listp l)
-           (true-listp l)))
-
-; Properties of fold-left with multiplication
-
-; Theorem: fold-product of a single element
-(defthm fold-product-singleton
-  (equal (fold-product (list x))
-         (* 1 x)))
-
-; Lemma: fold-left with multiplication starting from non-1 accumulator
-(defun fold-product-acc (acc l)
-  (fold-left (lambda (a x) (* a x)) acc l))
-
-; Key lemma: fold-product-acc with multiplication
-(defthm fold-product-acc-*
-  (implies (and (acl2-numberp acc)
-                (nat-listp l))
-           (equal (fold-product-acc (* acc x) l)
-                  (* acc (fold-product-acc x l)))))
-
-; Lemma: relationship between fold-product and fold-product-acc
-(defthm fold-product-is-fold-product-acc
-  (equal (fold-product l)
-         (fold-product-acc 1 l)))
-
-; Lemma: fold-product-acc distributes over append
-(defthm fold-product-acc-append
-  (implies (and (acl2-numberp acc)
-                (nat-listp l1)
-                (nat-listp l2))
-           (equal (fold-product-acc acc (append l1 l2))
-                  (fold-product-acc (fold-product-acc acc l1) l2))))
-
-; Additional helper lemmas
-
-; Lemma: fold-product of cons
-(defthm fold-product-cons
-  (implies (and (natp x)
-                (nat-listp l))
-           (equal (fold-product (cons x l))
-                  (* x (fold-product l)))))
-
-; Lemma: fold-product-acc identity
-(defthm fold-product-acc-1
-  (implies (nat-listp l)
-           (equal (fold-product-acc 1 l)
-                  (fold-product l))))
-
-; Lemma: associativity helper for fold-product-acc
-(defthm fold-product-acc-associative
-  (implies (and (acl2-numberp a)
-                (acl2-numberp b)
-                (nat-listp l))
-           (equal (fold-product-acc (* a b) l)
-                  (* a (fold-product-acc b l)))))
-
-; Lemma: fold-product returns a number
-(defthm fold-product-is-number
-  (implies (nat-listp l)
-           (acl2-numberp (fold-product l))))
-
-; Lemma: fold-product-acc returns a number
-(defthm fold-product-acc-is-number
-  (implies (and (acl2-numberp acc)
-                (nat-listp l))
-           (acl2-numberp (fold-product-acc acc l))))
-
-; Lemma: fold-product of nil
-(defthm fold-product-nil
-  (equal (fold-product nil) 1))
-
-; Lemma: fold-product-acc of nil
-(defthm fold-product-acc-nil
-  (implies (acl2-numberp acc)
-           (equal (fold-product-acc acc nil) acc)))
-
-; Lemma: multiplication with 1
-(defthm *-1-left
-  (implies (acl2-numberp x)
-           (equal (* 1 x) x)))
-
-; Lemma: nested fold-product-acc
-(defthm fold-product-acc-nested
-  (implies (and (acl2-numberp acc)
-                (nat-listp l1)
-                (nat-listp l2))
-           (equal (fold-product-acc acc (append l1 l2))
-                  (fold-product-acc (fold-product-acc acc l1) l2))))
 
 ; Theorem: fold-product distributes over append
 ; This proof requires only associativity of multiplication, not commutativity.
@@ -159,85 +186,36 @@
                   (* (fold-product l1) (fold-product l2))))
   :hints (("Goal" :in-theory (disable commutativity-of-*))))
 
-; Properties of fold-reverse
+;;; ==========================================================================
+;;; Interaction between Map and Fold
+;;; ==========================================================================
 
-; Theorem: fold-reverse is equivalent to reverse
-(defthm fold-reverse-is-reverse
-  (equal (fold-reverse l)
-         (reverse l)))
-
-; Theorem: double reverse returns original
-(defthm fold-reverse-fold-reverse
-  (equal (fold-reverse (fold-reverse l))
-         (true-list-fix l)))
-
-; Exploring the relationship between fold-left and fold-right
-
-; For associative operations with identity, fold-left and fold-right are equivalent
-; This is true for addition and multiplication
-
-; Theorem: fold-left and fold-right for addition
-(defun fold-right-sum (l)
-  (fold-right (lambda (x acc) (+ x acc)) l 0))
-
-(defthm fold-left-right-sum-equiv
+; Theorem: Folding after mapping
+(defthm fold-sum-map-inc
   (implies (nat-listp l)
-           (equal (fold-sum l)
-                  (fold-right-sum l))))
+           (equal (fold-sum (map-inc l))
+                  (+ (fold-sum l) (len l)))))
 
-; Theorem: fold-left and fold-right for multiplication
-(defun fold-right-product (l)
-  (fold-right (lambda (x acc) (* x acc)) l 1))
+;;; ==========================================================================
+;;; Flat Map: Map followed by concatenation
+;;; ==========================================================================
 
-(defthm fold-left-right-product-equiv
-  (implies (nat-listp l)
-           (equal (fold-product l)
-                  (fold-right-product l))))
+; flat-map-repeat: Map each element to a list of copies
+(defun repeat (n x)
+  (declare (xargs :guard (natp n)))
+  (if (zp n)
+      nil
+      (cons x (repeat (- n 1) x))))
 
-; Higher-order list operations
+(defun flat-map-repeat (l)
+  (declare (xargs :guard (nat-listp l)))
+  (if (endp l)
+      nil
+      (append (repeat (car l) (car l))
+              (flat-map-repeat (cdr l)))))
 
-; map: apply function to each element
-(defun map-fn (f l)
-  (if (consp l)
-      (cons (funcall f (car l))
-            (map-fn f (cdr l)))
-    nil))
-
-; filter: keep elements satisfying predicate
-(defun filter (p l)
-  (if (consp l)
-      (if (funcall p (car l))
-          (cons (car l) (filter p l))
-        (filter p (cdr l)))
-    nil))
-
-; Example: double all elements
-(defun double-all (l)
-  (map-fn (lambda (x) (* 2 x)) l))
-
-; Example: filter even numbers
-(defun filter-even (l)
-  (filter (lambda (x) (evenp x)) l))
-
-; Theorem: length of map
-(defthm len-map-fn
-  (equal (len (map-fn f l))
-         (len l)))
-
-; Theorem: map distributes over append
-(defthm map-fn-append
-  (equal (map-fn f (append l1 l2))
-         (append (map-fn f l1) (map-fn f l2))))
-
-; Exploring composition of folds
-
-; compose fold operations
-(defun fold-sum-of-products (l-of-lists)
-  (fold-sum (map-fn (lambda (l) (fold-product l)) l-of-lists)))
-
-; This experiment demonstrates:
-; 1. Implementation of fold-left and fold-right
-; 2. Properties of folds with associative operations
-; 3. Equivalence of fold-left and fold-right for commutative operations
-; 4. Higher-order functions like map and filter
-; 5. Composition of higher-order operations
+; Theorem about flat-map
+(defthm flat-map-repeat-append
+  (equal (flat-map-repeat (append l1 l2))
+         (append (flat-map-repeat l1)
+                 (flat-map-repeat l2))))
