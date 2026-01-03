@@ -10,7 +10,18 @@ CONVERTER := sbcl --script $(CONVERTER_SCRIPT) --acl2
 CERT := cert.pl
 
 # Find all .lisp files in experiments directory (excluding .ipynb_checkpoints)
-LISP_FILES := $(shell find experiments -name "*.lisp" -type f ! -path "*/.ipynb_checkpoints/*")
+# Use DIR variable to limit scope: make certify DIR=experiments/agents
+# Use SKIP variable to exclude files: make certify SKIP="file1.lisp file2.lisp"
+DIR ?= experiments
+
+SKIP ?= experiments/agents/react-agent-v4.lisp \
+	experiments/agents/mcp-client-old.lisp \
+	experiments/agents/test-mcp-session.lisp \
+	experiments/agents/test-llm.lisp \
+	experiments/challenge-problems-old.lisp
+
+LISP_FILES_ALL := $(shell find $(DIR) -name "*.lisp" -type f ! -path "*/.ipynb_checkpoints/*")
+LISP_FILES := $(filter-out $(SKIP),$(LISP_FILES_ALL))
 
 # Generate corresponding .ipynb targets
 NOTEBOOKS := $(LISP_FILES:.lisp=.ipynb)
@@ -37,22 +48,22 @@ certify: $(CERTS)
 	@cd $(dir $<) && $(CERT) $(notdir $<)
 
 # Clean target: remove all generated notebooks
-.PHONY: clean
-clean:
+.PHONY: clean-notebooks
+clean-notebooks:
 	@echo "Removing all generated .ipynb files..."
 	@rm -f $(NOTEBOOKS)
 	@echo "Done!"
 
 # Clean certificates: remove all .cert files and related ACL2 output
-.PHONY: clean-cert
-clean-cert:
+.PHONY: clean
+clean:
 	@echo "Removing all .cert files and ACL2 output..."
 	@find experiments -type f \( -name "*.cert" -o -name "*.out" -o -name "*.time" -o -name "*.port" -o -name "*.fasl" \) -delete
 	@echo "Done!"
 
 # Clean everything: notebooks and certificates
 .PHONY: clean-all
-clean-all: clean clean-cert
+clean-all: clean clean-notebooks
 
 # List target: show all .lisp files and their notebook status
 .PHONY: list
@@ -133,6 +144,10 @@ help:
 	@echo "Combined Targets:"
 	@echo "  make clean-all  - Remove all generated files (notebooks + certs)"
 	@echo "  make help       - Show this help message"
+	@echo ""
+	@echo "Limiting scope with DIR:"
+	@echo "  make certify DIR=experiments/agents     # Only certify agents/"
+	@echo "  make check-cert DIR=experiments/lists   # Check lists/ books"
 	@echo ""
 	@echo "Examples:"
 	@echo "  make                              # Build all out-of-date notebooks"
