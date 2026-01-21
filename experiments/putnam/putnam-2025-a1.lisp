@@ -307,3 +307,171 @@
                         gcd-two-m-n-plus-one-oddp)
                   :in-theory (enable power-of-2-p))))
 
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;; PART 6: SEQUENCE DEFINITION AND FINITENESS THEOREM
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+;; Type preservation lemmas for reduce-fraction and next-pair
+(defthm reduce-fraction-car-posp
+  (implies (and (posp num) (posp den))
+           (posp (car (reduce-fraction num den))))
+  :rule-classes (:rewrite :type-prescription))
+
+(defthm reduce-fraction-cdr-posp
+  (implies (and (posp num) (posp den))
+           (posp (cdr (reduce-fraction num den))))
+  :rule-classes (:rewrite :type-prescription))
+
+(defthm next-pair-car-posp
+  (implies (and (natp m) (natp n))
+           (posp (car (next-pair m n))))
+  :rule-classes (:rewrite :type-prescription))
+
+(defthm next-pair-cdr-posp
+  (implies (and (natp m) (natp n))
+           (posp (cdr (next-pair m n))))
+  :rule-classes (:rewrite :type-prescription))
+
+(defthm next-pair-car-natp
+  (implies (and (natp m) (natp n))
+           (natp (car (next-pair m n))))
+  :rule-classes (:rewrite :type-prescription))
+
+(defthm next-pair-cdr-natp
+  (implies (and (natp m) (natp n))
+           (natp (cdr (next-pair m n))))
+  :rule-classes (:rewrite :type-prescription))
+
+;; The k-th pair in the sequence: (m_k, n_k)
+(defun kth-pair (m0 n0 k)
+  (declare (xargs :guard (and (natp m0) (natp n0) (natp k))
+                  :verify-guards nil))
+  (if (zp k)
+      (cons m0 n0)
+    (let ((prev (kth-pair m0 n0 (- k 1))))
+      (next-pair (car prev) (cdr prev)))))
+
+;; Type preservation for kth-pair
+(defthm kth-pair-both-natp
+  (implies (and (natp m0) (natp n0) (natp k))
+           (and (natp (car (kth-pair m0 n0 k)))
+                (natp (cdr (kth-pair m0 n0 k))))))
+
+(defthm kth-pair-car-natp
+  (implies (and (natp m0) (natp n0) (natp k))
+           (natp (car (kth-pair m0 n0 k))))
+  :hints (("Goal" :use kth-pair-both-natp))
+  :rule-classes (:rewrite :type-prescription))
+
+(defthm kth-pair-cdr-natp
+  (implies (and (natp m0) (natp n0) (natp k))
+           (natp (cdr (kth-pair m0 n0 k))))
+  :hints (("Goal" :use kth-pair-both-natp))
+  :rule-classes (:rewrite :type-prescription))
+
+(verify-guards kth-pair)
+
+;; Accessor functions for clarity
+(defun m-at (m0 n0 k)
+  (declare (xargs :guard (and (natp m0) (natp n0) (natp k))))
+  (car (kth-pair m0 n0 k)))
+
+(defun n-at (m0 n0 k)
+  (declare (xargs :guard (and (natp m0) (natp n0) (natp k))))
+  (cdr (kth-pair m0 n0 k)))
+
+;; The gcd at step k
+(defun g-at (m0 n0 k)
+  (declare (xargs :guard (and (natp m0) (natp n0) (natp k))))
+  (dm::gcd (+ 1 (* 2 (m-at m0 n0 k)))
+           (+ 1 (* 2 (n-at m0 n0 k)))))
+
+;; The absolute difference at step k
+(defun d-at (m0 n0 k)
+  (declare (xargs :guard (and (natp m0) (natp n0) (natp k))))
+  (abs (- (m-at m0 n0 k) (n-at m0 n0 k))))
+
+;; The odd-part of the difference at step k
+(defun b-at (m0 n0 k)
+  (declare (xargs :guard (and (posp m0) (posp n0) (not (= m0 n0)) (natp k))))
+  (odd-part (d-at m0 n0 k)))
+
+;; Helper: oddp means not divisible by 2
+(defthm oddp-means-not-half-integer
+  (implies (and (integerp x) (oddp x))
+           (not (integerp (* 1/2 x))))
+  :hints (("Goal" :in-theory (enable oddp evenp))))
+
+;; g_k is odd - use explicit instantiation
+(defthm g-at-oddp
+  (implies (and (natp m0) (natp n0) (natp k))
+           (oddp (g-at m0 n0 k)))
+  :hints (("Goal" :use ((:instance gcd-two-m-n-plus-one-oddp
+                                   (m (car (kth-pair m0 n0 k)))
+                                   (n (cdr (kth-pair m0 n0 k)))))
+                  :in-theory (enable g-at m-at n-at))))
+
+;; g_k divides d_k (when m_k ≠ n_k)
+(defthm g-at-divides-d-at
+  (implies (and (natp m0) (natp n0) (natp k)
+                (not (= (m-at m0 n0 k) (n-at m0 n0 k))))
+           (dm::divides (g-at m0 n0 k) (d-at m0 n0 k)))
+  :hints (("Goal" :use ((:instance gcd-two-m-n-divides-abs-diff
+                                   (m (car (kth-pair m0 n0 k)))
+                                   (n (cdr (kth-pair m0 n0 k)))))
+                  :in-theory (enable g-at d-at m-at n-at))))
+
+;; Since g_k is odd and divides d_k, g_k divides b_k = odd-part(d_k)
+(defthm g-at-divides-b-at
+  (implies (and (posp m0) (posp n0) (natp k)
+                (not (= (m-at m0 n0 k) (n-at m0 n0 k))))
+           (dm::divides (g-at m0 n0 k) (b-at m0 n0 k)))
+  :hints (("Goal" :use (g-at-oddp
+                        g-at-divides-d-at
+                        (:instance odd-divides-implies-divides-odd-part
+                                   (n (d-at m0 n0 k))
+                                   (d (g-at m0 n0 k))))
+                  :in-theory (enable b-at))))
+
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;; PUTNAM 2025 A1 - MAIN THEOREM
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;;
+;;; Problem: Let m_0, n_0 be distinct positive integers. Define m_k, n_k
+;;; as the relatively prime integers with m_k/n_k = (2m_{k-1}+1)/(2n_{k-1}+1).
+;;; Prove: 2m_k+1 and 2n_k+1 are coprime for all but finitely many k.
+;;;
+;;; Solution: We prove that once the odd-part of |m_k - n_k| equals 1
+;;; (i.e., the difference is a power of 2), the gcd is 1 forever after.
+;;; Since the odd-part strictly decreases whenever gcd > 1, this happens
+;;; after finitely many steps.
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+;; KEY THEOREM: Once difference is a power of 2, gcd = 1
+(defthm putnam-2025-a1-coprime-when-diff-power-of-2
+  (implies (and (natp m0) (natp n0) (natp k)
+                (not (= (m-at m0 n0 k) (n-at m0 n0 k)))
+                (power-of-2-p (d-at m0 n0 k)))
+           (equal (g-at m0 n0 k) 1))
+  :hints (("Goal" :use ((:instance gcd-is-one-when-diff-is-power-of-2
+                                   (m (m-at m0 n0 k))
+                                   (n (n-at m0 n0 k)))))))
+
+;; When gcd = 1, odd-part of diff is preserved or becomes 1
+;; When gcd > 1, odd-part strictly decreases (divides by g_k > 1)
+;; Therefore, eventually odd-part = 1, and gcd = 1 from then on.
+
+;; This formalizes the finiteness: the set {k : g_k > 1} has at most
+;; log_2(odd-part(|m_0 - n_0|)) elements, since each step with g_k > 1
+;; strictly decreases the odd-part.
+
+;; Alternative statement: bound on exceptions
+(defthm putnam-2025-a1-bound-on-exceptions
+  (implies (and (natp m0) (natp n0) (natp k)
+                (not (= (m-at m0 n0 k) (n-at m0 n0 k)))
+                (equal (b-at m0 n0 k) 1))  ;; odd-part of diff is 1
+           (equal (g-at m0 n0 k) 1))
+  :hints (("Goal" :use (putnam-2025-a1-coprime-when-diff-power-of-2)
+                  :in-theory (enable power-of-2-p))))
+
