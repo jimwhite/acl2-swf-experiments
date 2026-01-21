@@ -58,10 +58,10 @@
   (declare (xargs :guard (and (natp m) (natp n))))
   (reduce-fraction (next-num m) (next-num n)))
 
-;; Test the functions
-(list (next-pair 3 5)   ;; m0=3, n0=5: (2*3+1)/(2*5+1) = 7/11
-      (next-pair 1 4)   ;; m0=1, n0=4: (2*1+1)/(2*4+1) = 3/9 = 1/3
-      (next-pair 1 3))  ;; (2*1+1)/(2*3+1) = 3/7
+;; Test examples (run interactively, not in book):
+;; (next-pair 3 5)   => (7 . 11)  ;; (2*3+1)/(2*5+1) = 7/11
+;; (next-pair 1 4)   => (1 . 3)   ;; (2*1+1)/(2*4+1) = 3/9 = 1/3
+;; (next-pair 1 3)   => (3 . 7)   ;; (2*1+1)/(2*3+1) = 3/7
 
 (defthm two-m-plus-one-oddp
   (implies (integerp m)
