@@ -187,12 +187,123 @@
           ("Subgoal *1/1" :use divides-one-implies-one))
   :rule-classes nil)
 
-;; Base case: consecutive integers have coprime 2m+1 values
-(defthm gcd-consecutive-odds
-  (implies (natp m)
-           (equal (dm::gcd (+ 1 (* 2 m)) (+ 3 (* 2 m))) 1))
-  :hints (("Goal" :use ((:instance gcd-two-m-n-divides-diff (m m) (n (1+ m)))
-                        (:instance gcd-two-m-n-plus-one-oddp (m m) (n (1+ m)))
-                        (:instance divides-one-implies-one 
-                                   (d (dm::gcd (+ 1 (* 2 m)) (+ 3 (* 2 m))))))
-                  :in-theory (enable dm::divides))))
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;; PART 5: THE MAIN THEOREM
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+;; odd-part: the largest odd divisor of n
+(defun odd-part (n)
+  (declare (xargs :guard (posp n)
+                  :measure (nfix n)))
+  (if (or (zp n) (= n 1))
+      1
+    (if (evenp n)
+        (odd-part (/ n 2))
+      n)))
+
+;; two-part: n / odd-part(n), always a power of 2
+(defun two-part (n)
+  (declare (xargs :guard (posp n)
+                  :measure (nfix n)))
+  (if (or (zp n) (= n 1))
+      1
+    (if (evenp n)
+        (* 2 (two-part (/ n 2)))
+      1)))
+
+;; log2 for expressing two-part as 2^k
+(defun log2 (n)
+  (declare (xargs :guard (posp n)
+                  :measure (nfix n)))
+  (if (or (zp n) (= n 1))
+      0
+    (if (evenp n)
+        (+ 1 (log2 (/ n 2)))
+      0)))
+
+;; Key properties
+(defthm odd-part-posp
+  (implies (posp n)
+           (posp (odd-part n)))
+  :rule-classes (:rewrite :type-prescription))
+
+(defthm odd-part-oddp
+  (implies (posp n)
+           (oddp (odd-part n)))
+  :hints (("Goal" :in-theory (enable oddp evenp))))
+
+(defthm n-equals-odd-times-two-part
+  (implies (posp n)
+           (equal n (* (odd-part n) (two-part n))))
+  :hints (("Goal" :in-theory (enable evenp)))
+  :rule-classes nil)
+
+(defthm two-part-is-power-of-2
+  (implies (posp n)
+           (equal (two-part n) (expt 2 (log2 n))))
+  :hints (("Goal" :in-theory (enable evenp))))
+
+;; If odd d divides 2^k * m, then d divides m
+(defthm odd-divides-product-with-power-of-2
+  (implies (and (natp k) (posp d) (oddp d) (integerp m) (> m 0)
+                (dm::divides d (* (expt 2 k) m)))
+           (dm::divides d m))
+  :hints (("Goal" :induct (expt 2 k))
+          ("Subgoal *1/2" :use ((:instance odd-divides-two-times-implies-divides
+                                           (g d) (k (* (expt 2 (- k 1)) m)))))))
+
+;; Key lemma: odd d divides n implies d divides odd-part(n)
+(defthm odd-divides-implies-divides-odd-part
+  (implies (and (posp n) (posp d) (oddp d) (dm::divides d n))
+           (dm::divides d (odd-part n)))
+  :hints (("Goal" :use ((:instance n-equals-odd-times-two-part)
+                        (:instance odd-divides-product-with-power-of-2
+                                   (k (log2 n)) (m (odd-part n)))))))
+
+;; A number is a power of 2 iff its odd-part is 1
+(defun power-of-2-p (n)
+  (declare (xargs :guard (posp n)))
+  (equal (odd-part n) 1))
+
+;; g | n and g | odd-part(n), and odd-part(n) = 1, then g = 1
+(defthm odd-divides-power-of-2-diff
+  (implies (and (posp d) (posp n) (oddp d)
+                (equal (odd-part n) 1)
+                (dm::divides d n))
+           (equal d 1))
+  :hints (("Goal" :use ((:instance odd-divides-implies-divides-odd-part)
+                        (:instance divides-one-implies-one))))
+  :rule-classes nil)
+
+;; g divides (m - n) also means g divides (n - m) = -(m - n)
+(defthm divides-neg
+  (implies (dm::divides g x)
+           (dm::divides g (- x)))
+  :hints (("Goal" :in-theory (enable dm::divides))))
+
+;; gcd divides absolute difference
+(defthm gcd-two-m-n-divides-abs-diff
+  (implies (and (natp m) (natp n) (not (= m n)))
+           (dm::divides (dm::gcd (+ 1 (* 2 m)) (+ 1 (* 2 n)))
+                        (abs (- m n))))
+  :hints (("Goal" :cases ((>= m n))
+                  :in-theory (enable abs))
+          ("Subgoal 2" :use ((:instance gcd-two-m-n-divides-diff)
+                             (:instance divides-neg 
+                                        (g (dm::gcd (+ 1 (* 2 m)) (+ 1 (* 2 n))))
+                                        (x (- m n)))))
+          ("Subgoal 1" :use (gcd-two-m-n-divides-diff))))
+
+;;; MAIN THEOREM ;;;
+;; If |m-n| is a power of 2, then gcd(2m+1, 2n+1) = 1
+(defthm gcd-is-one-when-diff-is-power-of-2
+  (implies (and (natp m) (natp n) (not (= m n))
+                (power-of-2-p (abs (- m n))))
+           (equal (dm::gcd (+ 1 (* 2 m)) (+ 1 (* 2 n))) 1))
+  :hints (("Goal" :use ((:instance odd-divides-power-of-2-diff
+                                   (d (dm::gcd (+ 1 (* 2 m)) (+ 1 (* 2 n))))
+                                   (n (abs (- m n))))
+                        gcd-two-m-n-divides-abs-diff
+                        gcd-two-m-n-plus-one-oddp)
+                  :in-theory (enable power-of-2-p))))
+
