@@ -341,3 +341,182 @@
                 (power-of-2-p (abs (- m n))))
            (equal (dm::gcd (+ 1 (* 2 m)) (+ 1 (* 2 n))) 1))
   :hints (("Goal" :cases ((> m n) (< m n)) :in-theory (enable abs))))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;; PART 10: SEQUENCE PROPERTIES FOR MAIN THEOREM
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+(defthm mn-seq-car-posp-tp
+  (implies (and (posp m0) (posp n0) (natp k))
+           (posp (car (mn-seq m0 n0 k))))
+  :hints (("Goal" :use mn-seq-posp))
+  :rule-classes :type-prescription)
+
+(defthm mn-seq-cdr-posp-tp
+  (implies (and (posp m0) (posp n0) (natp k))
+           (posp (cdr (mn-seq m0 n0 k))))
+  :hints (("Goal" :use mn-seq-posp))
+  :rule-classes :type-prescription)
+
+(defthm m-k-posp
+  (implies (and (posp m0) (posp n0) (natp k))
+           (posp (m-k m0 n0 k)))
+  :hints (("Goal" :in-theory (enable m-k))))
+
+(defthm n-k-posp
+  (implies (and (posp m0) (posp n0) (natp k))
+           (posp (n-k m0 n0 k)))
+  :hints (("Goal" :in-theory (enable n-k))))
+
+(defthm next-mn-distinct
+  (implies (and (posp m) (posp n) (not (= m n)))
+           (not (= (car (next-mn m n)) (cdr (next-mn m n)))))
+  :hints (("Goal" :use next-mn-diff)))
+
+(defthm mn-seq-distinct
+  (implies (and (posp m0) (posp n0) (not (= m0 n0)) (natp k))
+           (not (= (car (mn-seq m0 n0 k)) (cdr (mn-seq m0 n0 k)))))
+  :hints (("Goal" :induct (mn-seq m0 n0 k)
+                  :in-theory (disable next-mn))
+          ("Subgoal *1/2" :use ((:instance next-mn-distinct
+                                           (m (car (mn-seq m0 n0 (+ -1 k))))
+                                           (n (cdr (mn-seq m0 n0 (+ -1 k)))))))))
+
+(defthm mn-seq-step
+  (implies (natp k)
+           (equal (mn-seq m0 n0 (+ 1 k))
+                  (next-mn (car (mn-seq m0 n0 k))
+                           (cdr (mn-seq m0 n0 k)))))
+  :hints (("Goal" :expand (mn-seq m0 n0 (+ 1 k)))))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;; PART 11: POWER-OF-2 PRESERVATION THROUGH SEQUENCE
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+(defthm coprime-when-diff-is-power-of-2
+  (implies (and (posp m) (posp n) (not (= m n))
+                (power-of-2-p (abs (- m n))))
+           (equal (dm::gcd (+ 1 (* 2 m)) (+ 1 (* 2 n))) 1))
+  :hints (("Goal" :use gcd-is-one-when-diff-is-power-of-2)))
+
+(defthm next-mn-diff-abs
+  (implies (and (posp m) (posp n) (not (= m n)))
+           (equal (abs (- (car (next-mn m n)) (cdr (next-mn m n))))
+                  (/ (* 2 (abs (- m n)))
+                     (dm::gcd (+ 1 (* 2 m)) (+ 1 (* 2 n))))))
+  :hints (("Goal" :cases ((> m n))
+                  :in-theory (enable abs next-mn reduce-to-lowest-terms))))
+
+(defthm odd-part-next-diff-when-gcd-1
+  (implies (and (posp m) (posp n) (not (= m n))
+                (equal (dm::gcd (+ 1 (* 2 m)) (+ 1 (* 2 n))) 1))
+           (equal (odd-part (abs (- (car (next-mn m n)) (cdr (next-mn m n)))))
+                  (odd-part (abs (- m n)))))
+  :hints (("Goal" :use (next-mn-diff-abs
+                        (:instance odd-part-of-two-times 
+                                   (n (abs (- m n)))))
+                  :in-theory (disable next-mn-diff-abs odd-part-of-two-times
+                                      next-mn))))
+
+(defthm power-of-2-preserved
+  (implies (and (posp m) (posp n) (not (= m n))
+                (power-of-2-p (abs (- m n))))
+           (power-of-2-p (abs (- (car (next-mn m n)) (cdr (next-mn m n))))))
+  :hints (("Goal" :use (coprime-when-diff-is-power-of-2
+                        odd-part-next-diff-when-gcd-1)
+                  :in-theory (e/d (power-of-2-p) 
+                                  (coprime-when-diff-is-power-of-2
+                                   odd-part-next-diff-when-gcd-1
+                                   next-mn)))))
+
+(defthm power-of-2-preserved-in-seq
+  (implies (and (posp m0) (posp n0) (not (= m0 n0)) (natp k)
+                (power-of-2-p (abs (- (car (mn-seq m0 n0 k))
+                                      (cdr (mn-seq m0 n0 k))))))
+           (power-of-2-p (abs (- (car (mn-seq m0 n0 (1+ k)))
+                                 (cdr (mn-seq m0 n0 (1+ k)))))))
+  :hints (("Goal" :in-theory (disable power-of-2-preserved mn-seq-distinct
+                                      mn-seq next-mn abs)
+                  :use ((:instance power-of-2-preserved
+                                   (m (car (mn-seq m0 n0 k)))
+                                   (n (cdr (mn-seq m0 n0 k))))
+                        mn-seq-distinct
+                        (:instance mn-seq-step)))))
+
+(defthm power-of-2-stays-forever
+  (implies (and (posp m0) (posp n0) (not (= m0 n0))
+                (natp k0) (natp j)
+                (power-of-2-p (abs (- (car (mn-seq m0 n0 k0))
+                                      (cdr (mn-seq m0 n0 k0))))))
+           (power-of-2-p (abs (- (car (mn-seq m0 n0 (+ k0 j)))
+                                 (cdr (mn-seq m0 n0 (+ k0 j)))))))
+  :hints (("Goal" :induct (mn-seq m0 n0 j))
+          ("Subgoal *1/2" :use ((:instance power-of-2-preserved-in-seq
+                                           (k (+ -1 j k0)))))))
+
+(defthm coprime-when-seq-diff-is-power-of-2
+  (implies (and (posp m0) (posp n0) (not (= m0 n0)) (natp k)
+                (power-of-2-p (abs (- (m-k m0 n0 k) (n-k m0 n0 k)))))
+           (equal (dm::gcd (+ 1 (* 2 (m-k m0 n0 k)))
+                           (+ 1 (* 2 (n-k m0 n0 k))))
+                  1))
+  :hints (("Goal" :use ((:instance coprime-when-diff-is-power-of-2
+                                   (m (m-k m0 n0 k))
+                                   (n (n-k m0 n0 k)))
+                        mn-seq-distinct)
+                  :in-theory (e/d (m-k n-k)
+                                  (coprime-when-diff-is-power-of-2 
+                                   mn-seq-distinct mn-seq)))))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;; PART 12: BOUND FUNCTION AND MAIN THEOREM STRUCTURE
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+;; The bound N(m0, n0) = odd-part(|m0 - n0|)
+(defun bound-N (m0 n0)
+  (declare (xargs :guard (and (posp m0) (posp n0) (not (equal m0 n0)))))
+  (odd-part (abs (- m0 n0))))
+
+;; The property: gcd(2*m_k + 1, 2*n_k + 1) = 1
+(defun coprime-transformed-p (m0 n0 k)
+  (declare (xargs :guard (and (posp m0) (posp n0) (natp k))
+                  :verify-guards nil))
+  (equal (dm::gcd (+ (* 2 (m-k m0 n0 k)) 1)
+                  (+ (* 2 (n-k m0 n0 k)) 1))
+         1))
+
+;; Key theorem: once the difference is a power of 2 at some k0,
+;; the property holds for all k >= k0
+(defthm putnam-2025-a1-from-power-of-2
+  (implies (and (posp m0) (posp n0) (not (= m0 n0))
+                (natp k0) (natp k) (>= k k0)
+                (power-of-2-p (abs (- (m-k m0 n0 k0) (n-k m0 n0 k0)))))
+           (coprime-transformed-p m0 n0 k))
+  :hints (("Goal" :use ((:instance power-of-2-stays-forever (j (- k k0)))
+                        (:instance coprime-when-seq-diff-is-power-of-2))
+                  :in-theory (e/d (m-k n-k coprime-transformed-p) 
+                                  (power-of-2-stays-forever
+                                   coprime-when-seq-diff-is-power-of-2
+                                   mn-seq)))))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;; NOTES ON REMAINING PROOF
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;;
+;;; What we have proven:
+;;; 1. Once the difference |m_k - n_k| is a power of 2, it stays that way
+;;; 2. When the difference is a power of 2, gcd(2m_k+1, 2n_k+1) = 1
+;;; 3. Therefore, once diff is power-of-2 at k0, coprime-transformed-p
+;;;    holds for all k >= k0
+;;;
+;;; What remains to complete the full theorem:
+;;; We need to show that there exists k0 <= bound-N(m0,n0) such that
+;;; the difference at k0 is a power of 2. This requires proving that
+;;; the odd-part of the difference strictly decreases when gcd > 1.
+;;;
+;;; The key insight is:
+;;; - odd-part(|m' - n'|) = odd-part(|m - n|) / gcd(2m+1, 2n+1)
+;;; - When gcd > 1, the odd-part strictly decreases
+;;; - After at most odd-part(|m0 - n0|) steps, odd-part becomes 1
+;;; - odd-part = 1 means the difference is a power of 2
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
