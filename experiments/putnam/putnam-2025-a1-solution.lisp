@@ -83,8 +83,7 @@
 
 (defun mn-seq (m0 n0 k)
   (declare (xargs :guard (and (posp m0) (posp n0) (natp k))
-                  :measure (nfix k)
-                  :verify-guards nil))
+                  :measure (nfix k)))
   (if (zp k)
       (cons m0 n0)
     (let ((prev (mn-seq m0 n0 (1- k))))
@@ -268,8 +267,7 @@
 (defthm n-equals-odd-times-two-part
   (implies (posp n)
            (equal n (* (odd-part n) (two-part n))))
-  :hints (("Goal" :in-theory (enable evenp)))
-  :rule-classes nil)
+  :hints (("Goal" :in-theory (enable evenp))))
 
 (defthm two-part-is-power-of-2
   (implies (posp n)
@@ -294,8 +292,7 @@
 (defthm divides-one-implies-one
   (implies (and (posp d) (dm::divides d 1))
            (equal d 1))
-  :hints (("Goal" :in-theory (enable dm::divides)))
-  :rule-classes nil)
+  :hints (("Goal" :in-theory (enable dm::divides))))
 
 (defthm divides-neg
   (implies (dm::divides g x)
@@ -320,8 +317,7 @@
                 (dm::divides d n))
            (equal d 1))
   :hints (("Goal" :use ((:instance odd-divides-implies-divides-odd-part)
-                        (:instance divides-one-implies-one))))
-  :rule-classes nil)
+                        (:instance divides-one-implies-one)))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;; PART 6: MAIN THEOREM - POWER OF 2 DIFFERENCE IMPLIES GCD = 1
@@ -402,8 +398,7 @@
                         (:instance gcd-is-one-when-diff-is-power-of-2
                                    (m (m-k m0 n0 k))
                                    (n (n-k m0 n0 k))))
-                  :in-theory (enable coprime-transformed-p m-k n-k)))
-  :rule-classes nil)
+                  :in-theory (enable coprime-transformed-p m-k n-k))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;; PART 9: MAIN THEOREM (PUTNAM 2025 A1)
@@ -419,15 +414,14 @@
 ;;; The theorem below is therefore admitted with :skip-proofs for now.
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
-(skip-proofs
 (defthm diff-eventually-power-of-2
   (implies (and (posp m0)
                 (posp n0)
                 (not (= m0 n0))
                 (natp k)
                 (>= k (bound-N m0 n0)))
-           (power-of-2-p (abs (- (m-k m0 n0 k) (n-k m0 n0 k)))))
-  :rule-classes nil))
+           (power-of-2-p (abs (- (m-k m0 n0 k) (n-k m0 n0 k))))))
+)
 
 (defthm putnam-2025-a1-main
   (implies (and (posp m0)
@@ -437,5 +431,4 @@
                 (>= k (bound-N m0 n0)))
            (coprime-transformed-p m0 n0 k))
   :hints (("Goal" :use (diff-eventually-power-of-2
-                        putnam-2025-a1-conditional)))
-  :rule-classes nil)
+                        putnam-2025-a1-conditional))))
