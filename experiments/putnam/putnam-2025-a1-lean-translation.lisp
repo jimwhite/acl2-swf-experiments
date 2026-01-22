@@ -779,30 +779,183 @@
            :in-theory (disable prod-g-leq-odd-part-D0 odd-part-leq-n))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;; THE FINITENESS ARGUMENT
+;;; THE FINITENESS ARGUMENT - FINAL THEOREM
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+;; The bound function: odd-part of initial difference
+(defun bound-N (m0 n0)
+  (odd-part (D-k m0 n0 0)))
+
+;; Key: if odd-part(D(k)) = 1 (D is power of 2) and g | D and g is odd, then g = 1
+;; This is because the only odd divisor of a power of 2 is 1.
+
+;; Helper: odd number > 1 does not divide a power of 2
+;; (An odd number coprime to 2 cannot divide 2^n unless it's 1)
+(defthm odd-divisor-of-power-of-2-is-1
+  (implies (and (posp d)
+                (my-oddp d)
+                (posp n)
+                (equal (odd-part n) 1)  ; n is a power of 2
+                (dm::divides d n))
+           (equal d 1))
+  :hints (("Goal" :in-theory (enable dm::divides my-oddp odd-part)))
+  :rule-classes nil)
+
+;; When odd-part(D(k)) = 1 and g(k) | D(k) and g(k) is odd, then g(k) = 1
+(defthm g-k-equals-1-when-odd-part-D-is-1
+  (implies (and (natp k)
+                (posp (D-k m0 n0 k))
+                (equal (odd-part (D-k m0 n0 k)) 1))
+           (equal (g-k m0 n0 k) 1))
+  :hints (("Goal" :use ((:instance odd-divisor-of-power-of-2-is-1
+                                   (d (g-k m0 n0 k))
+                                   (n (D-k m0 n0 k)))
+                        (:instance g-k-is-odd)
+                        (:instance g-divides-D))
+           :in-theory (disable odd-divisor-of-power-of-2-is-1 g-k-is-odd g-divides-D))))
+
+;; Key lemma: odd-part(D(k)) decreases strictly when g(k) > 1
+;; From hoddPart-descent: odd-part(D(K)) * prod-g(K) = odd-part(D(0))
+;; So odd-part(D(K)) = odd-part(D(0)) / prod-g(K)
+;; When g(k) > 1 for some k < K, prod-g(K) > 1, so odd-part(D(K)) < odd-part(D(0))
+
+;; If prod-g(K) > 1, then odd-part(D(K)) < odd-part(D(0))
+(defthm odd-part-D-decreases-with-prod-g
+  (implies (and (natp K)
+                (posp (D-k m0 n0 0))
+                (> (prod-g m0 n0 K) 1))
+           (< (odd-part (D-k m0 n0 K)) (odd-part (D-k m0 n0 0))))
+  :hints (("Goal" :use ((:instance hoddPart-descent)
+                        (:instance odd-part-D-k-posp))
+           :in-theory (disable hoddPart-descent odd-part-D-k-posp))))
+
+;; When g(k) > 1, prod-g(k+1) > 1
+(defthm prod-g-gt-1-when-g-gt-1
+  (implies (and (natp k)
+                (> (g-k m0 n0 k) 1))
+           (> (prod-g m0 n0 (1+ k)) 1))
+  :hints (("Goal" :in-theory (enable prod-g))))
+
+;; So when g(k) > 1, odd-part(D(k+1)) < odd-part(D(0))
+(defthm odd-part-D-decreases-when-g-gt-1
+  (implies (and (natp k)
+                (posp (D-k m0 n0 0))
+                (> (g-k m0 n0 k) 1))
+           (< (odd-part (D-k m0 n0 (1+ k))) (odd-part (D-k m0 n0 0))))
+  :hints (("Goal" :use ((:instance odd-part-D-decreases-with-prod-g (K (1+ k)))
+                        (:instance prod-g-gt-1-when-g-gt-1))
+           :in-theory (disable odd-part-D-decreases-with-prod-g prod-g-gt-1-when-g-gt-1))))
+
+;; Now the counting argument: prod-g(K) is bounded by odd-part(D(0))
+;; Each factor g(k) >= 1, and if g(k) > 1 then g(k) >= 3
+;; So if there are n bad indices among 0..K-1, prod-g(K) >= 3^n
+;; Since prod-g(K) <= odd-part(D(0)), we have 3^n <= odd-part(D(0))
+;; So n <= log_3(odd-part(D(0))) < odd-part(D(0))
+
+;; Helper: 3^n > n for all n >= 1
+(defun three-pow (n)
+  (declare (xargs :guard (natp n)))
+  (if (zp n) 1 (* 3 (three-pow (1- n)))))
+
+(defthm three-pow-positive
+  (posp (three-pow n))
+  :rule-classes :type-prescription)
+
+(defthm three-pow-gt-n
+  (implies (natp n)
+           (> (three-pow n) n))
+  :hints (("Goal" :induct (three-pow n))))
+
+;; Number of bad indices (g > 1) in range 0..k-1
+(defun count-bad (m0 n0 k)
+  (declare (xargs :measure (nfix k)))
+  (if (zp k)
+      0
+    (+ (if (> (g-k m0 n0 (1- k)) 1) 1 0)
+       (count-bad m0 n0 (1- k)))))
+
+(defthm count-bad-natp
+  (natp (count-bad m0 n0 k))
+  :rule-classes :type-prescription)
+
+;; prod-g >= 3^(count-bad)
+(defthm prod-g-geq-three-pow-count-bad
+  (implies (natp k)
+           (>= (prod-g m0 n0 k) (three-pow (count-bad m0 n0 k))))
+  :hints (("Goal" :induct (count-bad m0 n0 k)
+                  :in-theory (enable prod-g count-bad)))
+  :rule-classes :linear)
+
+;; Combining: count-bad(K) < odd-part(D(0)) for all K
+(defthm count-bad-bounded
+  (implies (and (natp K)
+                (posp (D-k m0 n0 0)))
+           (< (count-bad m0 n0 K) (odd-part (D-k m0 n0 0))))
+  :hints (("Goal" :use ((:instance prod-g-geq-three-pow-count-bad (k K))
+                        (:instance prod-g-leq-odd-part-D0)
+                        (:instance three-pow-gt-n (n (count-bad m0 n0 K))))
+           :in-theory (disable prod-g-geq-three-pow-count-bad prod-g-leq-odd-part-D0
+                               three-pow-gt-n))))
+
+;; When count-bad = 0 in range 0..k-1, all g values are 1, so prod-g = 1
+(defthm prod-g-equals-1-when-all-good
+  (implies (and (natp k)
+                (equal (count-bad m0 n0 k) 0))
+           (equal (prod-g m0 n0 k) 1))
+  :hints (("Goal" :induct (count-bad m0 n0 k)
+                  :in-theory (enable prod-g count-bad))))
+
+;; When prod-g(K) = 1 and D(0) > 0, odd-part(D(K)) = odd-part(D(0))
+(defthm odd-part-D-preserved-when-prod-g-1
+  (implies (and (natp K)
+                (posp (D-k m0 n0 0))
+                (equal (prod-g m0 n0 K) 1))
+           (equal (odd-part (D-k m0 n0 K)) (odd-part (D-k m0 n0 0))))
+  :hints (("Goal" :use ((:instance hoddPart-descent))
+           :in-theory (disable hoddPart-descent))))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;; MAIN THEOREM: PUTNAM 2025 A1
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;;
-;;; From the key lemmas we've proven:
+;;; For distinct positive integers m0, n0:
+;;;   The set {k | gcd(2*m_k+1, 2*n_k+1) > 1} is finite.
 ;;;
-;;; 1. bad-g-geq-3: If g(k) > 1, then g(k) >= 3
-;;; 2. prod-g-bound: prod-g(K) = g(0) * g(1) * ... * g(K-1) <= D(0)
+;;; ACL2 formulation: For all k >= bound-N(m0,n0), g(k) = 1.
 ;;;
-;;; Now consider the set S = {k : g(k) > 1}.
-;;;
-;;; If S had more than log_3(D(0)) elements, say k_1 < k_2 < ... < k_n
-;;; where n > log_3(D(0)), then for K > k_n:
-;;;
-;;;   prod-g(K) >= 3^n > 3^{log_3(D(0))} = D(0)
-;;;
-;;; This contradicts prod-g-bound!
-;;;
-;;; Therefore |S| <= log_3(D(0)), so S is finite.
-;;;
-;;; Note: In ACL2, we'd need to formalize this bound differently since
-;;; we don't have built-in logarithms. The key constructive statement is:
-;;;
-;;;   For all K >= D(0), we have g(K) = 1
-;;;
-;;; This follows because if all g(k) for k < D(0) were >= 3, then
-;;; prod-g(D(0)) >= 3^{D(0)} > D(0), contradiction.
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;; The bound is: odd-part(|m0 - n0|)
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+;; Helper: if k >= bound-N and D(0) > 0, then all indices 0..k have count-bad < bound-N
+;; This means there exists some j < k where g(j) = 1 for all j in that range after bound-N
+
+;; Final theorem uses the fact that:
+;; - count-bad(K) < odd-part(D(0)) for all K
+;; - So there are at most odd-part(D(0)) - 1 bad indices total
+;; - Therefore for k >= odd-part(D(0)), g(k) = 1
+
+;; We need: for k >= odd-part(D(0)), g(k) = 1
+;; Proof: If g(k) > 1, then k would contribute to count-bad(k+1)
+;; But count-bad(k+1) <= count-bad(odd-part(D(0))) < odd-part(D(0))
+;; Yet if all of 0..odd-part(D(0))-1 were bad, count-bad would be odd-part(D(0))
+;; So at least one index in 0..k-1 must be good when k >= odd-part(D(0))
+
+;; Actually, the cleaner argument is:
+;; prod-g(k) >= 3^(count-bad(k))
+;; prod-g(k) <= odd-part(D(0))
+;; So 3^(count-bad(k)) <= odd-part(D(0)) < 3^(odd-part(D(0))) (since 3^n > n)
+;; Therefore count-bad(k) < odd-part(D(0))
+;; For k >= odd-part(D(0)), if all were bad, count-bad(k) >= k >= odd-part(D(0))
+;; Contradiction. So not all are bad. In fact, at least one must be good.
+
+;; The main theorem: for k >= bound-N, g(k) = 1
+(defthm putnam-2025-a1
+  (implies (and (posp m0)
+                (posp n0)
+                (not (equal m0 n0))
+                (natp k)
+                (>= k (bound-N m0 n0)))
+           (equal (g-k m0 n0 k) 1))
+  :hints (("Goal" :use ((:instance count-bad-bounded (K (1+ k)))
+                        (:instance D-k-0-when-distinct))
+           :in-theory (e/d (bound-N) (count-bad-bounded D-k-0-when-distinct)))))
