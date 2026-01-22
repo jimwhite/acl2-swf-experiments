@@ -209,23 +209,43 @@ The following definitions and lemmas have been **verified to work** in ACL2:
   (declare (xargs :measure (nfix k)))
   (if (zp k) 1 (* (g-k m0 n0 (1- k)) (prod-g m0 n0 (1- k)))))
 
-;; Proven lemmas:
-(defthm odd-part-posp (implies (posp n) (posp (odd-part n))))
-(defthm odd-part-leq (implies (posp n) (<= (odd-part n) n)))
-(defthm gcd-posp (implies (and (posp a) (posp b)) (posp (dm::gcd a b))))
-(defthm gcd-divides-a
+;; Proven lemmas (all certified in putnam-2025-a1-lean-translation.lisp):
+
+;; Bridge lemmas connecting dm::gcd to integerp
+(defthm divides-means-integerp-quotient
+  (implies (dm::divides d a) (integerp (/ a d))))
+(defthm gcd-divides-first
   (implies (and (integerp a) (integerp b) (not (= a 0)))
            (dm::divides (dm::gcd a b) a)))
-(defthm g-times-next-m
-  (implies (and (posp m) (posp n))
-           (equal (* (dm::gcd (+ 1 (* 2 m)) (+ 1 (* 2 n)))
-                     (car (next-mn m n)))
-                  (+ 1 (* 2 m)))))
-(defthm g-times-next-n
-  (implies (and (posp m) (posp n))
-           (equal (* (dm::gcd (+ 1 (* 2 m)) (+ 1 (* 2 n)))
-                     (cdr (next-mn m n)))
-                  (+ 1 (* 2 n)))))
+(defthm quotient-by-gcd-integerp
+  (implies (and (integerp a) (integerp b) (not (= a 0)))
+           (integerp (/ a (dm::gcd a b)))))
+(defthm gcd-posp
+  (implies (and (posp a) (posp b)) (posp (dm::gcd a b)))
+  :rule-classes :type-prescription)
+(defthm quotient-by-gcd-posp
+  (implies (and (posp a) (posp b)) (posp (/ a (dm::gcd a b))))
+  :rule-classes :type-prescription)
+
+;; Type properties for odd-part
+(defthm odd-part-posp (implies (posp n) (posp (odd-part n))))
+(defthm odd-part-leq (implies (posp n) (<= (odd-part n) n)))
+
+;; Type properties for next-mn (KEY - needed for mn-seq induction)
+(defthm next-mn-car-posp (posp (car (next-mn m n))) :rule-classes :type-prescription)
+(defthm next-mn-cdr-posp (posp (cdr (next-mn m n))) :rule-classes :type-prescription)
+
+;; Type properties for mn-seq (proved by SIMULTANEOUS INDUCTION)
+;; The key insight: prove car and cdr together in single induction
+(defthm mn-seq-posp-pair
+  (and (posp (car (mn-seq m0 n0 k)))
+       (posp (cdr (mn-seq m0 n0 k))))
+  :rule-classes ((:type-prescription :corollary (posp (car (mn-seq m0 n0 k))))
+                 (:type-prescription :corollary (posp (cdr (mn-seq m0 n0 k))))))
+
+;; Accessor type rules (derived)
+(defthm m-k-posp (posp (m-k m0 n0 k)) :rule-classes :type-prescription)
+(defthm n-k-posp (posp (n-k m0 n0 k)) :rule-classes :type-prescription)
 ```
 
 ## Key Recurrences (Numerically Verified)
