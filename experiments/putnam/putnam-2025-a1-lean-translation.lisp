@@ -562,31 +562,275 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;; QUESTION FOR ACL2 EXPERT
+;;; LEMMA 6 SETUP: hoddPart_descent helpers
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+;; If g is odd and g | 2x, then g | x  
+;; Since g is odd, gcd(g,2) = 1, so g | x
+(defthm odd-divides-implies-divides-double
+  (implies (and (posp g) (integerp x)
+                (my-oddp g)
+                (dm::divides g (* 2 x)))
+           (dm::divides g x))
+  :hints (("Goal" :use ((:instance dm::evenp-times (dm::x g) (dm::y (/ (* 2 x) g))))
+                  :in-theory (enable dm::divides my-oddp))))
+
+;; D(k+1) = 2 * D(k) / g(k) as an equation
+(defthm D-recurrence-quotient
+  (implies (and (natp k)
+                (posp m0) (posp n0) (not (equal m0 n0)))
+           (equal (D-k m0 n0 (1+ k))
+                  (/ (* 2 (D-k m0 n0 k))
+                     (g-k m0 n0 k))))
+  :hints (("Goal" :use ((:instance D-recurrence)
+                        (:instance gcd-posp 
+                                   (a (1+ (* 2 (m-k m0 n0 k))))
+                                   (b (1+ (* 2 (n-k m0 n0 k))))))
+           :in-theory (disable D-recurrence gcd-posp))))
+
+;; g(k) | 2*D(k)
+(defthm g-divides-2D
+  (implies (natp k)
+           (dm::divides (g-k m0 n0 k) (* 2 (D-k m0 n0 k))))
+  :hints (("Goal" :use ((:instance g-divides-D))
+           :in-theory (e/d (dm::divides) (g-divides-D)))))
+
+;; 2*D(k) / g(k) is positive when D(k) > 0
+(defthm two-D-over-g-posp
+  (implies (and (natp k)
+                (posp m0) (posp n0) (not (equal m0 n0))
+                (posp (D-k m0 n0 k)))
+           (posp (/ (* 2 (D-k m0 n0 k)) (g-k m0 n0 k))))
+  :hints (("Goal" :use ((:instance gcd-posp 
+                                   (a (1+ (* 2 (m-k m0 n0 k))))
+                                   (b (1+ (* 2 (n-k m0 n0 k)))))
+                        (:instance g-divides-2D)
+                        (:instance divides-implies-quotient-posp
+                                   (g (g-k m0 n0 k))
+                                   (n (* 2 (D-k m0 n0 k)))))
+           :in-theory (disable gcd-posp g-divides-2D divides-implies-quotient-posp))))
+
+;; odd-part(D(k+1)) * g(k) = odd-part(D(k))
+;; Since D(k+1) = 2*D(k)/g(k) and g(k) is odd, we can use odd-part-quotient-by-odd
+(defthm oddPart-single-step
+  (implies (and (natp k)
+                (posp m0) (posp n0) (not (equal m0 n0))
+                (posp (D-k m0 n0 k)))
+           (equal (* (odd-part (D-k m0 n0 (1+ k)))
+                     (g-k m0 n0 k))
+                  (odd-part (D-k m0 n0 k))))
+  :hints (("Goal" :use ((:instance D-recurrence-quotient)
+                        (:instance odd-divides-implies-divides-double
+                                   (g (g-k m0 n0 k))
+                                   (x (D-k m0 n0 k)))
+                        (:instance odd-part-times-odd
+                                   (n (/ (* 2 (D-k m0 n0 k)) (g-k m0 n0 k)))
+                                   (m (g-k m0 n0 k)))
+                        (:instance two-D-over-g-posp)
+                        (:instance g-k-is-odd)
+                        (:instance g-divides-2D)
+                        (:instance gcd-posp 
+                                   (a (1+ (* 2 (m-k m0 n0 k))))
+                                   (b (1+ (* 2 (n-k m0 n0 k))))))
+           :in-theory (disable D-recurrence-quotient odd-divides-implies-divides-double
+                               odd-part-times-odd two-D-over-g-posp g-k-is-odd
+                               g-divides-2D gcd-posp))))
+
+;; odd-part of a positive integer is positive
+(defthm odd-part-of-posp-is-posp
+  (implies (posp n)
+           (posp (odd-part n)))
+  :hints (("Goal" :in-theory (enable odd-part)))
+  :rule-classes :type-prescription)
+
+;; D(k) type
+(defthm D-k-natp-helper
+  (implies (and (natp k) (posp m0) (posp n0) (not (equal m0 n0)))
+           (natp (D-k m0 n0 k)))
+  :hints (("Goal" :in-theory (enable D-k))))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;; LEMMA 6: hoddPart_descent - The Key Descent Formula
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+;; LEMMA 6 (Lean4: hoddPart_descent):
+;;   odd-part(D(K)) * prod-g(K) = odd-part(D(0))
+;;
+;; This is the key formula showing that the product of g values
+;; equals the ratio of odd-parts, which bounds the product.
+(defthm hoddPart-descent
+  (implies (and (natp K)
+                (posp m0) (posp n0) (not (equal m0 n0))
+                (posp (D-k m0 n0 0)))
+           (equal (* (odd-part (D-k m0 n0 K))
+                     (prod-g m0 n0 K))
+                  (odd-part (D-k m0 n0 0))))
+  :hints (("Goal" :induct (prod-g m0 n0 K))
+          ("Subgoal *1/2" 
+           :use ((:instance oddPart-single-step (k (1- K)))))))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;; LEMMA 6 COROLLARIES
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+;; odd-part is at most n (since odd-part divides n)
+(defthm odd-part-leq-n
+  (implies (posp n)
+           (<= (odd-part n) n))
+  :hints (("Goal" :in-theory (enable odd-part)))
+  :rule-classes :linear)
+
+;; prod-g is positive
+(defthm prod-g-posp
+  (implies (natp K)
+           (posp (prod-g m0 n0 K)))
+  :hints (("Goal" :in-theory (enable prod-g)))
+  :rule-classes :type-prescription)
+
+;; D(k+1) > 0 when D(k) > 0 (step case)
+(defthm D-k-posp-step
+  (implies (and (natp k)
+                (posp m0) (posp n0) (not (equal m0 n0))
+                (posp (D-k m0 n0 k)))
+           (posp (D-k m0 n0 (1+ k))))
+  :hints (("Goal" :use ((:instance D-recurrence-quotient)
+                        (:instance two-D-over-g-posp))
+           :in-theory (disable D-recurrence-quotient two-D-over-g-posp))))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;; LEMMA 7 HELPERS AND MAIN BOUND
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+;; Helper induction function for natural number induction
+(defun nat-induct (k)
+  (if (zp k) k (nat-induct (1- k))))
+
+;; D(k) is a natural number (integer >= 0)
+(defthm D-k-natp
+  (implies (and (natp k) (posp m0) (posp n0) (not (equal m0 n0)))
+           (natp (D-k m0 n0 k)))
+  :hints (("Goal" :in-theory (enable D-k))))
+
+;; D(k) >= 0 for all k when inputs are valid
+(defthm D-k-natp-all
+  (implies (and (natp k)
+                (posp m0) (posp n0) (not (equal m0 n0))
+                (posp (D-k m0 n0 0)))
+           (natp (D-k m0 n0 k)))
+  :hints (("Goal" :induct (nat-induct k)
+                  :in-theory (enable D-k))
+          ("Subgoal *1/2"
+           :use ((:instance D-recurrence (k (1- k)))
+                 (:instance g-divides-D (k (1- k))))
+           :in-theory (e/d (D-k) (D-recurrence g-divides-D)))))
+
+;; D(0) > 0 when m0 ≠ n0
+(defthm D-k-0-when-distinct
+  (implies (and (posp m0) (posp n0) (not (equal m0 n0)))
+           (posp (D-k m0 n0 0)))
+  :hints (("Goal" :in-theory (enable D-k))))
+
+;; If x * y = z where y > 0 and z >= 1 and all are integers, then x >= 1
+(defthm product-equals-bound
+  (implies (and (posp y) (posp z)
+                (equal (* x y) z)
+                (integerp x))
+           (posp x))
+  :rule-classes nil)
+
+;; odd-part(D(K)) is positive when D(0) > 0
+;; From hoddPart-descent: odd-part(D(K)) * prod-g(K) = odd-part(D(0))
+;; prod-g(K) > 0, odd-part(D(0)) >= 1, so odd-part(D(K)) >= 1
+(defthm odd-part-D-k-posp
+  (implies (and (natp K)
+                (posp m0) (posp n0) (not (equal m0 n0))
+                (posp (D-k m0 n0 0)))
+           (posp (odd-part (D-k m0 n0 K))))
+  :hints (("Goal" :use ((:instance hoddPart-descent)
+                        (:instance product-equals-bound
+                                   (x (odd-part (D-k m0 n0 K)))
+                                   (y (prod-g m0 n0 K))
+                                   (z (odd-part (D-k m0 n0 0))))
+                        (:instance prod-g-posp)
+                        (:instance odd-part-of-posp-is-posp
+                                   (n (D-k m0 n0 0))))
+           :in-theory (disable hoddPart-descent prod-g-posp odd-part-of-posp-is-posp))))
+
+;; D(k) > 0 for all k when D(0) > 0
+;; Since odd-part(D(K)) >= 1 and D(K) >= odd-part(D(K)), we have D(K) >= 1
+(defthm D-k-posp-all
+  (implies (and (natp k)
+                (posp m0) (posp n0) (not (equal m0 n0))
+                (posp (D-k m0 n0 0)))
+           (posp (D-k m0 n0 k)))
+  :hints (("Goal" :use ((:instance odd-part-D-k-posp)
+                        (:instance odd-part-leq-n (n (D-k m0 n0 k))))
+           :in-theory (disable odd-part-D-k-posp odd-part-leq-n))))
+
+;; If a * b = c and a >= 1 and all positive, then b <= c
+(defthm product-bound
+  (implies (and (posp a) (posp b) (posp c)
+                (equal (* a b) c))
+           (<= b c))
+  :rule-classes nil)
+
+;; prod-g(K) <= odd-part(D(0))
+(defthm prod-g-leq-odd-part-D0
+  (implies (and (natp K)
+                (posp m0) (posp n0) (not (equal m0 n0))
+                (posp (D-k m0 n0 0)))
+           (<= (prod-g m0 n0 K) (odd-part (D-k m0 n0 0))))
+  :hints (("Goal" :use ((:instance hoddPart-descent)
+                        (:instance odd-part-D-k-posp)
+                        (:instance prod-g-posp)
+                        (:instance odd-part-of-posp-is-posp (n (D-k m0 n0 0)))
+                        (:instance product-bound
+                                   (a (odd-part (D-k m0 n0 K)))
+                                   (b (prod-g m0 n0 K))
+                                   (c (odd-part (D-k m0 n0 0)))))
+           :in-theory (disable hoddPart-descent odd-part-D-k-posp prod-g-posp
+                               odd-part-of-posp-is-posp))))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;; LEMMA 7: THE MAIN BOUND (Lean4: hprod_g_bound)
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+;; LEMMA 7 (final form): prod-g(K) <= D(0)
+;; This is crucial for the finiteness argument!
+(defthm prod-g-bound
+  (implies (and (natp K)
+                (posp m0) (posp n0) (not (equal m0 n0))
+                (posp (D-k m0 n0 0)))
+           (<= (prod-g m0 n0 K) (D-k m0 n0 0)))
+  :hints (("Goal" :use ((:instance prod-g-leq-odd-part-D0)
+                        (:instance odd-part-leq-n (n (D-k m0 n0 0))))
+           :in-theory (disable prod-g-leq-odd-part-D0 odd-part-leq-n))))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;; THE FINITENESS ARGUMENT
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;;
-;;; The key mathematical fact from Lean4 is:
+;;; From the key lemmas we've proven:
 ;;;
-;;;   "The product of g(i) over ANY finite set of distinct indices
-;;;    is bounded by odd-part(D(0)) ≤ D(0)"
+;;; 1. bad-g-geq-3: If g(k) > 1, then g(k) >= 3
+;;; 2. prod-g-bound: prod-g(K) = g(0) * g(1) * ... * g(K-1) <= D(0)
 ;;;
-;;; This follows because:
-;;;   - g(i) | odd-part(D(i))  (g is odd and divides D)
-;;;   - odd-part(D(i)) | odd-part(D(0)) for all i (by the descent formula)
-;;;   - So the product of any distinct g values divides odd-part(D(0))
+;;; Now consider the set S = {k : g(k) > 1}.
 ;;;
-;;; How would you state and prove this bound in ACL2?
+;;; If S had more than log_3(D(0)) elements, say k_1 < k_2 < ... < k_n
+;;; where n > log_3(D(0)), then for K > k_n:
 ;;;
-;;; Specifically, we need something like:
+;;;   prod-g(K) >= 3^n > 3^{log_3(D(0))} = D(0)
 ;;;
-;;; (defthm product-of-distinct-gs-bounded
-;;;   (implies (and (posp m0) (posp n0) (not (= m0 n0))
-;;;                 (distinct-index-list indices)
-;;;                 (all-indices-natp indices))
-;;;            (<= (product-of-g-over-list m0 n0 indices)
-;;;                (D-k m0 n0 0))))
+;;; This contradicts prod-g-bound!
 ;;;
-;;; Where product-of-g-over-list computes g(i_1) * g(i_2) * ... * g(i_n)
-;;; for the indices in the list.
+;;; Therefore |S| <= log_3(D(0)), so S is finite.
 ;;;
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;; Note: In ACL2, we'd need to formalize this bound differently since
+;;; we don't have built-in logarithms. The key constructive statement is:
+;;;
+;;;   For all K >= D(0), we have g(K) = 1
+;;;
+;;; This follows because if all g(k) for k < D(0) were >= 3, then
+;;; prod-g(D(0)) >= 3^{D(0)} > D(0), contradiction.
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
