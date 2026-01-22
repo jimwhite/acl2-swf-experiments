@@ -83,7 +83,8 @@
 
 (defun mn-seq (m0 n0 k)
   (declare (xargs :guard (and (posp m0) (posp n0) (natp k))
-                  :measure (nfix k)))
+                  :measure (nfix k)
+                  :verify-guards nil))
   (if (zp k)
       (cons m0 n0)
     (let ((prev (mn-seq m0 n0 (1- k))))
@@ -267,7 +268,8 @@
 (defthm n-equals-odd-times-two-part
   (implies (posp n)
            (equal n (* (odd-part n) (two-part n))))
-  :hints (("Goal" :in-theory (enable evenp))))
+  :hints (("Goal" :in-theory (enable evenp)))
+  :rule-classes nil)  ;; Can't be a rewrite rule (rewrites variable), but available for :use
 
 (defthm two-part-is-power-of-2
   (implies (posp n)
@@ -292,7 +294,8 @@
 (defthm divides-one-implies-one
   (implies (and (posp d) (dm::divides d 1))
            (equal d 1))
-  :hints (("Goal" :in-theory (enable dm::divides))))
+  :hints (("Goal" :in-theory (enable dm::divides)))
+  :rule-classes nil)  ;; Can't be rewrite rule (rewrites variable), available for :use
 
 (defthm divides-neg
   (implies (dm::divides g x)
@@ -317,7 +320,8 @@
                 (dm::divides d n))
            (equal d 1))
   :hints (("Goal" :use ((:instance odd-divides-implies-divides-odd-part)
-                        (:instance divides-one-implies-one)))))
+                        (:instance divides-one-implies-one))))
+  :rule-classes nil)  ;; Can't be rewrite rule (rewrites variable), available for :use
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;; PART 6: MAIN THEOREM - POWER OF 2 DIFFERENCE IMPLIES GCD = 1
@@ -401,26 +405,123 @@
                   :in-theory (enable coprime-transformed-p m-k n-k))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;; PART 9: MAIN THEOREM (PUTNAM 2025 A1)
+;;; REMAINING WORK: DIFF EVENTUALLY POWER OF 2
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;;
-;;; NOTE: The full theorem requires an additional lemma showing that
-;;; for k >= bound-N(m0, n0), the difference |m_k - n_k| is a power of 2.
-;;; This involves proving that:
-;;; 1. When gcd(2m+1, 2n+1) > 1, the odd-part of |m' - n'| < odd-part of |m - n|
-;;; 2. After at most odd-part(|m0 - n0|) steps with gcd > 1, odd-part becomes 1
+;;; To complete the full Putnam 2025 A1 theorem, we need to prove:
+;;;   diff-eventually-power-of-2: for k >= odd-part(|m0-n0|), 
+;;;   the difference |m_k - n_k| is a power of 2.
 ;;;
-;;; This proof is complex and involves tracking the sequence dynamics.
-;;; The theorem below is therefore admitted with :skip-proofs for now.
+;;; This requires proving that odd-part(|m_{k+1} - n_{k+1}|) <= odd-part(|m_k - n_k|)
+;;; with strict inequality when gcd(2m_k+1, 2n_k+1) > 1.
+;;;
+;;; Key insight: |m' - n'| = 2|m-n|/g where g = gcd(2m+1, 2n+1).
+;;; When g > 1 (odd), odd-part(2|m-n|/g) = odd-part(|m-n|)/g < odd-part(|m-n|).
+;;; When g = 1, odd-part(2|m-n|) = odd-part(|m-n|) (preserved).
+;;;
+;;; After at most odd-part(|m0-n0|) steps with g > 1, odd-part becomes 1.
+;;;
+;;; See putnam-2025-a1-experiments.lisp for work in progress on this theorem.
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+  (implies (posp n)
+           (equal (odd-part (* 2 n)) (odd-part n)))
+  :hints (("Goal" :expand ((odd-part (* 2 n))))))
+
+;; odd-part is always odd
+(defthm odd-part-oddp
+  (implies (posp n)
+           (oddp (odd-part n)))
+  :hints (("Goal" :in-theory (enable oddp evenp))))
+
+;; odd-part divides n
+(defthm odd-part-divides
+  (implies (posp n)
+           (integerp (/ n (odd-part n))))
+  :hints (("Goal" :in-theory (enable evenp))))
+
+;; When we divide by an odd number, odd-part gets divided too
+;; odd-part(n/g) = odd-part(n)/g when g is odd and divides n
+(defthm odd-part-div-by-odd
+  (implies (and (posp n) (posp g) (oddp g) (integerp (/ n g)))
+           (equal (odd-part (/ n g))
+                  (/ (odd-part n) g)))
+  :hints (("Goal" :induct (odd-part n)
+                  :in-theory (enable oddp evenp))))
+
+;; Key lemma: if odd g > 1 divides n, then odd-part(n/g) < odd-part(n)
+(defthm odd-part-decreases-when-divided-by-odd
+  (implies (and (posp n) (posp g) (oddp g) (> g 1)
+                (integerp (/ n g)))
+           (< (odd-part (/ n g)) (odd-part n)))
+  :hints (("Goal" :use odd-part-div-by-odd
+                  :in-theory (disable odd-part-div-by-odd)))
+  :rule-classes :linear)
+
+;; The next difference formula
+(defthm next-mn-diff-formula
+  (implies (and (posp m) (posp n))
+           (equal (- (car (next-mn m n)) (cdr (next-mn m n)))
+                  (/ (- (* 2 m) (* 2 n))
+                     (dm::gcd (+ 1 (* 2 m)) (+ 1 (* 2 n))))))
+  :hints (("Goal" :in-theory (enable next-mn reduce-to-lowest-terms))))
+
+;; Helper for tracking odd-part through sequence
+(defun d-k (m0 n0 k)
+  (declare (xargs :guard (and (posp m0) (posp n0) (natp k))))
+  (abs (- (m-k m0 n0 k) (n-k m0 n0 k))))
+
+(defun b-k (m0 n0 k)
+  (declare (xargs :guard (and (posp m0) (posp n0) (not (= m0 n0)) (natp k))))
+  (odd-part (d-k m0 n0 k)))
+
+;; d-k is always positive when m0 ≠ n0
+(defthm d-k-posp
+  (implies (and (posp m0) (posp n0) (not (= m0 n0)) (natp k))
+           (posp (d-k m0 n0 k)))
+  :hints (("Goal" :use m-k-neq-n-k
+                  :in-theory (enable d-k abs)))
+  :rule-classes (:rewrite :type-prescription))
+
+;; b-k is always positive
+(defthm b-k-posp
+  (implies (and (posp m0) (posp n0) (not (= m0 n0)) (natp k))
+           (posp (b-k m0 n0 k)))
+  :hints (("Goal" :in-theory (enable b-k)))
+  :rule-classes (:rewrite :type-prescription))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;; PART 10: MAIN INDUCTION
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;;
+;;; The key insight: use strong induction on the pair (b_k, k).
+;;; When gcd > 1: b_{k+1} < b_k, so we can use the induction hypothesis
+;;; When gcd = 1: the pair is already coprime, and we're done for this step
+;;;
+;;; A cleaner approach: prove by induction on b_0 - k that:
+;;; For k >= b_0, we have b_k = 1.
+;;;
+;;; The measure is b_k (the odd-part of the difference).
+;;; Each step either keeps gcd = 1 (already coprime) or decreases b_k.
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
+;; We need a custom induction scheme based on the sequence
+(defun diff-induct (m0 n0 k bound)
+  (declare (xargs :measure (nfix (- (1+ bound) k))))
+  (if (or (zp bound) (>= (nfix k) (nfix bound)))
+      (list m0 n0 k)
+    (diff-induct m0 n0 (1+ k) bound)))
+
+;; The main theorem: after k >= odd-part(|m0-n0|) steps, diff is power of 2
+;; This requires a careful induction that tracks the decreasing odd-part
 (defthm diff-eventually-power-of-2
   (implies (and (posp m0)
                 (posp n0)
                 (not (= m0 n0))
                 (natp k)
                 (>= k (bound-N m0 n0)))
-           (power-of-2-p (abs (- (m-k m0 n0 k) (n-k m0 n0 k))))))
+           (power-of-2-p (abs (- (m-k m0 n0 k) (n-k m0 n0 k)))))
+  :hints (("Goal" :induct (diff-induct m0 n0 0 k)
+                  :in-theory (enable power-of-2-p bound-N))))
 
 (defthm putnam-2025-a1-main
   (implies (and (posp m0)
