@@ -704,6 +704,15 @@
                   :use (mn-seq-distinct)))
   :rule-classes (:rewrite :type-prescription))
 
+;; m-k and n-k at step 0 are just m0 and n0
+(defthm m-k-at-0
+  (equal (m-k m0 n0 0) m0)
+  :hints (("Goal" :in-theory (enable m-k))))
+
+(defthm n-k-at-0
+  (equal (n-k m0 n0 0) n0)
+  :hints (("Goal" :in-theory (enable n-k))))
+
 ;; When the initial difference is already a power of 2, bound-N = 1
 ;; and coprime holds from the start
 (defthm putnam-2025-a1-power-of-2-case
@@ -713,8 +722,7 @@
            (coprime-transformed-p m0 n0 k))
   :hints (("Goal" :use ((:instance putnam-2025-a1-from-power-of-2
                                    (k0 0) (k k)))
-                  :in-theory (e/d (m-k n-k) 
-                                  (putnam-2025-a1-from-power-of-2 mn-seq)))))
+                  :in-theory (enable m-k-at-0 n-k-at-0))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;; PUTNAM 2025 A1 - MAIN THEOREM
