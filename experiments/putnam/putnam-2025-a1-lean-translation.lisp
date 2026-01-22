@@ -848,44 +848,91 @@
   :rule-classes :linear)
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;; MAIN THEOREM: PUTNAM 2025 A1 (Lean4: count-bad bounded by D(0))
+;;; MAIN THEOREM: PUTNAM 2025 A1
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;;
-;;; Lean4's contradiction argument:
-;;; - If |bad set| >= D(0)+1, then ∏ g(bad indices) >= 3^(D(0)+1) > D(0)
-;;; - But ∏ g(any indices) <= D(0) (from hprod_bound)
-;;; - Contradiction
+;;; Lean4's theorem:
+;;;   theorem putnam_2025_a1 (m n : ℕ → ℕ)
+;;;     (h0 : m 0 > 0 ∧ n 0 > 0 ∧ m 0 ≠ n 0)
+;;;     (hm : ∀ k : ℕ, m (k + 1) = ((2 * m k + 1) / (2 * n k + 1) : ℚ).num)
+;;;     (hn : ∀ k : ℕ, n (k + 1) = ((2 * m k + 1) / (2 * n k + 1) : ℚ).den):
+;;;     {k | ¬ (2 * m k + 1).Coprime (2 * n k + 1)}.Finite
 ;;;
-;;; We prove: count-bad(K) < D(0) for all K
-;;; which directly translates to: bad set has < D(0) elements
-;;;
-;;; Proof:
-;;; - prod-g(K) >= 3^(count-bad(K))   [prod-g-geq-three-pow-count-bad]
-;;; - prod-g(K) <= D(0)               [prod-g-bound]
-;;; - 3^n > n for all n               [three-pow-gt-n]
-;;; - So count-bad(K) <= D(0) would require 3^(D(0)) <= D(0), contradiction
-;;; - Therefore count-bad(K) < D(0)
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
-;; Main bound: count-bad(K) < D(0) for all K
-;; This is the ACL2 version of Lean4's finiteness result
-(defthm putnam-2025-a1-finiteness
+;;; LEAN4-MATCHING DEFINITIONS
+;;; These mirror the Lean4 definitions exactly
+
+;; Lean4: m, n : ℕ → ℕ  (the sequence functions)
+;; In ACL2, m and n are functions of k (with m0, n0 as parameters)
+(defmacro m (k) `(m-k m0 n0 ,k))
+(defmacro n (k) `(n-k m0 n0 ,k))
+
+;; Lean4: (2 * m k + 1).Coprime (2 * n k + 1)
+;; Coprime means gcd = 1
+(defun coprime-p (a b)
+  "True when gcd(a, b) = 1"
+  (equal (dm::gcd a b) 1))
+
+;; Lean4: ¬ (2 * m k + 1).Coprime (2 * n k + 1)
+(defun not-coprime-at-k (m0 n0 k)
+  "True when gcd(2*m_k+1, 2*n_k+1) ≠ 1, i.e., not coprime"
+  (not (coprime-p (+ 1 (* 2 (m-k m0 n0 k)))
+                  (+ 1 (* 2 (n-k m0 n0 k))))))
+
+;; Lean4: {k | ¬ (2 * m k + 1).Coprime (2 * n k + 1)}
+;; The "bad set" - in ACL2 we count its elements up to K
+(defun bad-set-card (m0 n0 K)
+  "Cardinality of {k < K | ¬ Coprime(2*m_k+1, 2*n_k+1)}"
+  (count-bad m0 n0 K))
+
+;; Lean4: .Finite means the set has a finite upper bound
+;; We express this as: for all K, |bad set ∩ [0,K)| < |m(0) - n(0)|
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;; THEOREM: putnam_2025_a1
+;;;
+;;; Lean4:
+;;;   theorem putnam_2025_a1 (m n : ℕ → ℕ)
+;;;     (h0 : m 0 > 0 ∧ n 0 > 0 ∧ m 0 ≠ n 0)
+;;;     (hm : ∀ k, m (k+1) = ((2*m k+1)/(2*n k+1) : ℚ).num)
+;;;     (hn : ∀ k, n (k+1) = ((2*m k+1)/(2*n k+1) : ℚ).den):
+;;;     {k | ¬ (2 * m k + 1).Coprime (2 * n k + 1)}.Finite
+;;;
+;;; ACL2 translation:
+;;;   Given m0, n0 satisfying h0 (m0 > 0, n0 > 0, m0 ≠ n0),
+;;;   with m, n defined by the recurrence (built into m-k, n-k),
+;;;   the set {k | ¬ Coprime(2*m(k)+1, 2*n(k)+1)} is finite,
+;;;   specifically: |{k < K : not coprime}| < |m0 - n0| for all K.
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+(defthm putnam_2025_a1-helper
   (implies (and (natp K)
                 (posp (D-k m0 n0 0)))
-           (< (count-bad m0 n0 K) (D-k m0 n0 0)))
+           (< (bad-set-card m0 n0 K) (D-k m0 n0 0)))
   :hints (("Goal" :use ((:instance prod-g-geq-three-pow-count-bad (k K))
                         (:instance prod-g-bound)
                         (:instance three-pow-gt-n (n (count-bad m0 n0 K))))
            :in-theory (disable prod-g-geq-three-pow-count-bad prod-g-bound
                                three-pow-gt-n))))
 
-;; Corollary with the natural hypotheses
-(defthm putnam-2025-a1
-  (implies (and (posp m0)
-                (posp n0)
-                (not (equal m0 n0))
-                (natp K))
-           (< (count-bad m0 n0 K) (D-k m0 n0 0)))
-  :hints (("Goal" :use ((:instance putnam-2025-a1-finiteness)
+;; Main theorem matching Lean4 structure:
+;;   theorem putnam_2025_a1 (m n : ℕ → ℕ)
+;;     (h0 : m 0 > 0 ∧ n 0 > 0 ∧ m 0 ≠ n 0)
+;;     ...
+;;     {k | ¬ (2 * m k + 1).Coprime (2 * n k + 1)}.Finite
+(defthm putnam_2025_a1
+  (implies 
+   ;; h0 : m 0 > 0 ∧ n 0 > 0 ∧ m 0 ≠ n 0
+   (and (posp m0)                      ; m 0 > 0
+        (posp n0)                      ; n 0 > 0
+        (not (equal m0 n0))            ; m 0 ≠ n 0
+        (natp K))
+   ;; {k | ¬ (2 * m k + 1).Coprime (2 * n k + 1)}.Finite
+   ;; expressed as: |{k < K : ¬ Coprime}| < |m(0) - n(0)|
+   (< (bad-set-card m0 n0 K)           ; |bad set ∩ [0,K)|
+      (abs (- m0 n0))))                ; |m(0) - n(0)|
+  :hints (("Goal" :use ((:instance putnam_2025_a1-helper)
                         (:instance D-k-0-when-distinct))
-           :in-theory (disable putnam-2025-a1-finiteness D-k-0-when-distinct))))
+           :in-theory (e/d (D-k) (putnam_2025_a1-helper D-k-0-when-distinct)))))
+
