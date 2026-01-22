@@ -334,19 +334,16 @@
                         gcd-two-m-n-plus-one-oddp)
                   :in-theory (enable power-of-2-p))))
 
-;; GCD is symmetric
-(defthm gcd-symmetric
-  (equal (dm::gcd a b) (dm::gcd b a))
-  :hints (("Goal" :in-theory (enable dm::gcd))))
-
-;; Case 2: m < n (use symmetry)
+;; Case 2: m < n (use symmetry via dm::gcd-commutative)
 (defthm gcd-is-one-when-diff-is-power-of-2-case-2
   (implies (and (natp m) (natp n) (< m n)
                 (power-of-2-p (- n m)))
            (equal (dm::gcd (+ 1 (* 2 m)) (+ 1 (* 2 n))) 1))
   :hints (("Goal" :use ((:instance gcd-is-one-when-diff-is-power-of-2-case-1
                                    (m n) (n m))
-                        gcd-symmetric)
+                        (:instance dm::gcd-commutative
+                                   (x (+ 1 (* 2 m)))
+                                   (y (+ 1 (* 2 n)))))
                   :in-theory (disable gcd-is-one-when-diff-is-power-of-2-case-1))))
 
 ;; Combined theorem
