@@ -248,14 +248,29 @@ The following definitions and lemmas have been **verified to work** in ACL2:
 (defthm n-k-posp (posp (n-k m0 n0 k)) :rule-classes :type-prescription)
 ```
 
-## Key Recurrences (Numerically Verified)
+## Key Recurrences (PROVEN)
 
-These hold numerically but haven't been formally proven yet:
+These lemmas have been formally proven in `putnam-2025-a1-lean-translation.lisp`:
 
-1. **D-recurrence**: `D(k+1) * g(k) = 2 * D(k)`
-2. **Product formula**: `D(K) * prod-g(K) = 2^K * D(0)`  
-3. **OddPart descent**: `odd-part(D(K)) * prod-g(K) = odd-part(D(0))`
-4. **Product bound**: `prod-g(K) ≤ D(0)`
+1. **D-recurrence** ✅: `D(k+1) * g(k) = 2 * D(k)`
+   ```lisp
+   (defthm D-recurrence
+     (implies (natp k)
+              (equal (* (D-k m0 n0 (+ 1 k)) (g-k m0 n0 k))
+                     (* 2 (D-k m0 n0 k)))))
+   ```
+
+2. **Product formula** ✅: `D(K) * prod-g(K) = 2^K * D(0)`
+   ```lisp
+   (defthm product-formula
+     (implies (natp k)
+              (equal (* (D-k m0 n0 k) (prod-g m0 n0 k))
+                     (* (expt 2 k) (D-k m0 n0 0)))))
+   ```
+
+3. **OddPart descent** (NOT YET PROVEN): `odd-part(D(K)) * prod-g(K) = odd-part(D(0))`
+
+4. **Product bound** (NOT YET PROVEN): `prod-g(K) ≤ D(0)`
 
 ## The Blocking Issue (Detailed)
 

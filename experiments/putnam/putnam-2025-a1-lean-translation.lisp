@@ -220,7 +220,70 @@
     (* (g-k m0 n0 (1- k)) (prod-g m0 n0 (1- k)))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;; PART 5: KEY LEMMAS FROM LEAN4 (TO BE PROVEN)
+;;; PART 5: KEY LEMMAS FROM LEAN4 (PROVEN)
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+;; Helper lemmas for recurrence proofs
+
+;; g-k in terms of mn-seq
+(defthm g-k-expand
+  (equal (g-k m0 n0 k)
+         (dm::gcd (+ 1 (* 2 (car (mn-seq m0 n0 k))))
+                  (+ 1 (* 2 (cdr (mn-seq m0 n0 k))))))
+  :hints (("Goal" :in-theory (enable g-k m-k n-k))))
+
+;; mn-seq at k+1 in terms of next-mn at k
+(defthm mn-seq-step
+  (implies (natp k)
+           (equal (mn-seq m0 n0 (+ 1 k))
+                  (next-mn (car (mn-seq m0 n0 k))
+                           (cdr (mn-seq m0 n0 k)))))
+  :hints (("Goal" :in-theory (enable mn-seq)
+                  :expand ((mn-seq m0 n0 (+ 1 k))))))
+
+;;; LEMMA 4 (Lean4: hD_rec): D(k+1) * g(k) = 2 * D(k)
+;;; KEY RECURRENCE - PROVEN!
+(defthm D-recurrence
+  (implies (natp k)
+           (equal (* (D-k m0 n0 (+ 1 k)) (g-k m0 n0 k))
+                  (* 2 (D-k m0 n0 k))))
+  :hints (("Goal" :in-theory (enable D-k m-k n-k g-k mn-seq next-mn))))
+
+;; Algebra helper for product formula
+(defthm algebra-helper
+  (implies (and (equal (* d-succ g) (* 2 d-prev))
+                (equal (* d-prev pg) (* exp d0))
+                (acl2-numberp d-succ)
+                (acl2-numberp d-prev)
+                (acl2-numberp d0)
+                (acl2-numberp g)
+                (acl2-numberp pg)
+                (acl2-numberp exp))
+           (equal (* d-succ g pg) (* 2 exp d0))))
+
+;;; LEMMA 5 (Lean4: hprod_formula): D(K) * prod-g(K) = 2^K * D(0)
+;;; PROVEN!
+(defthm product-formula
+  (implies (natp k)
+           (equal (* (D-k m0 n0 k) (prod-g m0 n0 k))
+                  (* (expt 2 k) (D-k m0 n0 0))))
+  :hints (("Goal" :induct (prod-g m0 n0 k)
+                  :in-theory (e/d (prod-g)
+                                  (D-k g-k mn-seq m-k n-k next-mn pos-fix D-recurrence)))
+          ("Subgoal *1/2" 
+           :use ((:instance D-recurrence (k (1- k)))
+                 (:instance algebra-helper
+                            (d-succ (D-k m0 n0 k))
+                            (g (g-k m0 n0 (1- k)))
+                            (d-prev (D-k m0 n0 (1- k)))
+                            (pg (prod-g m0 n0 (1- k)))
+                            (exp (expt 2 (1- k)))
+                            (d0 (D-k m0 n0 0))))
+           :in-theory (e/d (prod-g g-k-expand)
+                           (D-k g-k mn-seq m-k n-k next-mn pos-fix D-recurrence algebra-helper)))))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;; REMAINING LEMMAS (TO BE PROVEN)
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 ;;; LEMMA 1 (Lean4: hne): m_k ≠ n_k for all k
@@ -231,11 +294,6 @@
 
 ;;; LEMMA 3 (Lean4: hg_dvd_D): g(k) | D(k)
 ;;; (The gcd divides the absolute difference)
-
-;;; LEMMA 4 (Lean4: hD_rec): D(k+1) * g(k) = 2 * D(k)
-;;; KEY RECURRENCE
-
-;;; LEMMA 5 (Lean4: hprod_formula): D(K) * prod-g(K) = 2^K * D(0)
 
 ;;; LEMMA 6 (Lean4: hoddPart_descent): 
 ;;;   odd-part(D(K)) * prod-g(K) = odd-part(D(0))
