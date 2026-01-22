@@ -421,7 +421,6 @@
                 (natp k)
                 (>= k (bound-N m0 n0)))
            (power-of-2-p (abs (- (m-k m0 n0 k) (n-k m0 n0 k))))))
-)
 
 (defthm putnam-2025-a1-main
   (implies (and (posp m0)
