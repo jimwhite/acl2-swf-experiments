@@ -881,13 +881,13 @@
                   (+ 1 (* 2 (n-k m0 n0 k))))))
 
 ;; Lean4: {k | ¬ (2 * m k + 1).Coprime (2 * n k + 1)}
-;; The "bad set" - in ACL2 we count its elements up to K
-(defun bad-set-card (m0 n0 K)
-  "Cardinality of {k < K | ¬ Coprime(2*m_k+1, 2*n_k+1)}"
+;; Count the number of k < K where 2*m_k+1 and 2*n_k+1 are NOT coprime
+(defun count-if-not-coprime (m0 n0 K)
+  "#{k < K | ¬ Coprime(2*m_k+1, 2*n_k+1)}"
   (count-bad m0 n0 K))
 
 ;; Lean4: .Finite means the set has a finite upper bound
-;; We express this as: for all K, |bad set ∩ [0,K)| < |m(0) - n(0)|
+;; We express this as: for all K, |{k < K : ¬ Coprime}| < |m(0) - n(0)|
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;; THEOREM: putnam_2025_a1
@@ -906,33 +906,32 @@
 ;;;   specifically: |{k < K : not coprime}| < |m0 - n0| for all K.
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
-(defthm putnam_2025_a1-helper
-  (implies (and (natp K)
-                (posp (D-k m0 n0 0)))
-           (< (bad-set-card m0 n0 K) (D-k m0 n0 0)))
-  :hints (("Goal" :use ((:instance prod-g-geq-three-pow-count-bad (k K))
-                        (:instance prod-g-bound)
-                        (:instance three-pow-gt-n (n (count-bad m0 n0 K))))
-           :in-theory (disable prod-g-geq-three-pow-count-bad prod-g-bound
-                               three-pow-gt-n))))
-
 ;; Main theorem matching Lean4 structure:
 ;;   theorem putnam_2025_a1 (m n : ℕ → ℕ)
 ;;     (h0 : m 0 > 0 ∧ n 0 > 0 ∧ m 0 ≠ n 0)
-;;     ...
+;;     (hm : ∀ k, m (k+1) = ((2*m k+1)/(2*n k+1) : ℚ).num)
+;;     (hn : ∀ k, n (k+1) = ((2*m k+1)/(2*n k+1) : ℚ).den):
 ;;     {k | ¬ (2 * m k + 1).Coprime (2 * n k + 1)}.Finite
+;;
+;; ACL2 formulation: The number of k where ¬ Coprime(2*m_k+1, 2*n_k+1)
+;; is strictly bounded by |m0 - n0|, hence finite.
+
 (defthm putnam_2025_a1
   (implies 
    ;; h0 : m 0 > 0 ∧ n 0 > 0 ∧ m 0 ≠ n 0
-   (and (posp m0)                      ; m 0 > 0
-        (posp n0)                      ; n 0 > 0
-        (not (equal m0 n0))            ; m 0 ≠ n 0
+   (and (posp m0)                           ; m 0 > 0
+        (posp n0)                           ; n 0 > 0
+        (not (equal m0 n0))                 ; m 0 ≠ n 0
         (natp K))
-   ;; {k | ¬ (2 * m k + 1).Coprime (2 * n k + 1)}.Finite
-   ;; expressed as: |{k < K : ¬ Coprime}| < |m(0) - n(0)|
-   (< (bad-set-card m0 n0 K)           ; |bad set ∩ [0,K)|
-      (abs (- m0 n0))))                ; |m(0) - n(0)|
-  :hints (("Goal" :use ((:instance putnam_2025_a1-helper)
+   ;; {k | ¬ Coprime(2*m_k+1, 2*n_k+1)}.Finite
+   ;; i.e., #{k < K : ¬ Coprime(2*m_k+1, 2*n_k+1)} < |m0 - n0|
+   (< (count-if-not-coprime m0 n0 K)        ; #{k < K : gcd ≠ 1}
+      (abs (- m0 n0))))                     ; |m(0) - n(0)|
+  :hints (("Goal" :use ((:instance prod-g-geq-three-pow-count-bad (k K))
+                        (:instance prod-g-bound)
+                        (:instance three-pow-gt-n (n (count-bad m0 n0 K)))
                         (:instance D-k-0-when-distinct))
-           :in-theory (e/d (D-k) (putnam_2025_a1-helper D-k-0-when-distinct)))))
+           :in-theory (e/d (D-k count-if-not-coprime) 
+                           (prod-g-geq-three-pow-count-bad prod-g-bound
+                            three-pow-gt-n D-k-0-when-distinct)))))
 
