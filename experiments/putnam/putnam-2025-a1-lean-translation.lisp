@@ -24,6 +24,9 @@
 ;; For arithmetic
 (include-book "arithmetic-5/top" :dir :system)
 
+;; For evenp-times (product of odd numbers is odd)
+(include-book "projects/numbers/eisenstein" :dir :system)
+
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;; BRIDGE LEMMAS: Connecting dm::divides to integerp
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -383,17 +386,51 @@
 ;; KEY LEMMA: odd-part(n/g) * g = odd-part(n) when g is odd and g|n
 ;; (This is hoddPart-descent-lemma-2 from the search results)
 ;; Proof idea: g is odd so doesn't affect factors of 2, only odd part
-;; TODO: This requires induction on odd-part structure
-#||
+
+;; Helper: if g|n, then n/g is an integer
+(defthm divides-implies-quotient-integerp
+  (implies (and (posp g) (posp n)
+                (dm::divides g n))
+           (integerp (/ n g)))
+  :hints (("Goal" :in-theory (enable dm::divides))))
+
+;; Helper: if g|n, then n/g is positive
+(defthm divides-implies-quotient-posp
+  (implies (and (posp g) (posp n)
+                (dm::divides g n))
+           (posp (/ n g)))
+  :hints (("Goal" :in-theory (enable dm::divides))))
+
+;; Use dm::evenp-times: (evenp (* x y)) = (or (evenp x) (evenp y))
+(defthm odd-times-odd-is-odd
+  (implies (and (integerp m) (integerp n)
+                (my-oddp m) (my-oddp n))
+           (my-oddp (* m n)))
+  :hints (("Goal" :in-theory (enable my-oddp)
+                  :use (:instance dm::evenp-times (dm::x m) (dm::y n)))))
+
+;; If m is odd, then odd-part(m * n) = m * odd-part(n)
+;; When we multiply by an odd number, we don't add factors of 2
+(defthm odd-part-times-odd
+  (implies (and (posp m) (posp n) (my-oddp m))
+           (equal (odd-part (* m n))
+                  (* m (odd-part n))))
+  :hints (("Goal" :in-theory (enable odd-part my-oddp))))
+
+;; Main lemma: odd-part(n/g) * g = odd-part(n) when g is odd and g|n
 (defthm odd-part-quotient-by-odd
-  (implies (and (posp n)
-                (posp g)
+  (implies (and (posp n) (posp g)
                 (my-oddp g)
                 (dm::divides g n))
            (equal (* g (odd-part (/ n g)))
                   (odd-part n)))
-  :hints ...)
-||#
+  :hints (("Goal" 
+           :use ((:instance odd-part-times-odd 
+                            (m g) 
+                            (n (/ n g)))
+                 (:instance divides-implies-quotient-posp
+                            (g g) (n n)))
+           :in-theory (disable odd-part-times-odd divides-implies-quotient-posp))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;; REMAINING LEMMAS (TO BE PROVEN)
