@@ -283,17 +283,95 @@
                            (D-k g-k mn-seq m-k n-k next-mn pos-fix D-recurrence algebra-helper)))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;; ODDNESS LEMMAS
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+;; Definition of odd
+(defun my-oddp (n)
+  (and (integerp n)
+       (not (integerp (/ n 2)))))
+
+;; 2k+1 is odd
+(defthm two-k-plus-one-odd
+  (implies (integerp k)
+           (my-oddp (+ 1 (* 2 k))))
+  :hints (("Goal" :in-theory (enable my-oddp))))
+
+;; If d is even and q is integer, then d*q is even
+(defthm even-times-integer-is-even
+  (implies (and (integerp (/ d 2))
+                (integerp q))
+           (integerp (/ (* d q) 2)))
+  :hints (("Goal" :use ((:instance (:theorem (implies (integerp x) (integerp (* 2 x))))
+                                   (x (* (/ d 2) q)))))))
+
+;; A divisor of an odd number is odd
+(defthm divisor-of-odd-is-odd
+  (implies (and (my-oddp n)
+                (dm::divides d n)
+                (posp d))
+           (my-oddp d))
+  :hints (("Goal" :in-theory (enable my-oddp dm::divides)
+                  :use ((:instance even-times-integer-is-even
+                                   (q (/ n d)))))))
+
+;; gcd of two odd positive numbers is odd
+(defthm gcd-of-odds-is-odd
+  (implies (and (my-oddp a) (my-oddp b) (posp a) (posp b))
+           (my-oddp (dm::gcd a b)))
+  :hints (("Goal" :use ((:instance divisor-of-odd-is-odd
+                                   (n a)
+                                   (d (dm::gcd a b)))
+                        (:instance dm::gcd-divides (x a) (y b))
+                        (:instance dm::gcd-pos (x a) (y b))))))
+
+;;; LEMMA 2 (Lean4: hg_odd): g(k) is odd for all k - PROVEN!
+(defthm g-k-is-odd
+  (my-oddp (g-k m0 n0 k))
+  :hints (("Goal" :in-theory (enable g-k m-k n-k)
+                  :use ((:instance gcd-of-odds-is-odd
+                                   (a (+ 1 (* 2 (car (mn-seq m0 n0 k)))))
+                                   (b (+ 1 (* 2 (cdr (mn-seq m0 n0 k))))))))))
+
+;; If n is odd and > 1, then n >= 3
+(defthm odd-gt-1-means-geq-3
+  (implies (and (my-oddp n) (> n 1))
+           (>= n 3))
+  :hints (("Goal" :in-theory (enable my-oddp))))
+
+;; If g(k) > 1, then g(k) >= 3 (key for pigeonhole bound)
+(defthm bad-g-geq-3
+  (implies (> (g-k m0 n0 k) 1)
+           (>= (g-k m0 n0 k) 3))
+  :hints (("Goal" :use ((:instance g-k-is-odd)
+                        (:instance odd-gt-1-means-geq-3 (n (g-k m0 n0 k)))))))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;; DIVISIBILITY LEMMAS
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+;; gcd divides difference
+(defthm gcd-divides-diff
+  (implies (and (integerp a) (integerp b) (not (equal a 0)) (not (equal b 0)))
+           (dm::divides (dm::gcd a b) (- a b)))
+  :hints (("Goal" :use ((:instance dm::gcd-divides (x a) (y b))
+                        (:instance dm::divides-minus 
+                                   (x (dm::gcd a b))
+                                   (y b))
+                        (:instance dm::divides-sum
+                                   (x (dm::gcd a b))
+                                   (y a)
+                                   (z (- b)))))))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;; REMAINING LEMMAS (TO BE PROVEN)
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 ;;; LEMMA 1 (Lean4: hne): m_k ≠ n_k for all k
 ;;; (defthm mn-seq-distinct ...)
 
-;;; LEMMA 2 (Lean4: hg_odd): g(k) is odd for all k
-;;; (Since gcd of two odd numbers is odd)
-
 ;;; LEMMA 3 (Lean4: hg_dvd_D): g(k) | D(k)
-;;; (The gcd divides the absolute difference)
+;;; (The gcd divides the absolute difference - need to connect g to D)
 
 ;;; LEMMA 6 (Lean4: hoddPart_descent): 
 ;;;   odd-part(D(K)) * prod-g(K) = odd-part(D(0))

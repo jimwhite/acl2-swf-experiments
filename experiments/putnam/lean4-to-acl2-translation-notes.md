@@ -268,9 +268,32 @@ These lemmas have been formally proven in `putnam-2025-a1-lean-translation.lisp`
                      (* (expt 2 k) (D-k m0 n0 0)))))
    ```
 
-3. **OddPart descent** (NOT YET PROVEN): `odd-part(D(K)) * prod-g(K) = odd-part(D(0))`
+3. **g(k) is odd** ✅: gcd of two odd numbers is odd
+   ```lisp
+   (defthm g-k-is-odd (my-oddp (g-k m0 n0 k)))
+   ```
 
-4. **Product bound** (NOT YET PROVEN): `prod-g(K) ≤ D(0)`
+4. **bad-g-geq-3** ✅: If g(k) > 1 then g(k) >= 3 (key for pigeonhole)
+   ```lisp
+   (defthm bad-g-geq-3
+     (implies (> (g-k m0 n0 k) 1)
+              (>= (g-k m0 n0 k) 3)))
+   ```
+
+5. **gcd-divides-diff** ✅: gcd(a,b) divides (a-b)
+   ```lisp
+   (defthm gcd-divides-diff
+     (implies (and (integerp a) (integerp b) (not (= a 0)) (not (= b 0)))
+              (dm::divides (dm::gcd a b) (- a b))))
+   ```
+
+## Remaining Lemmas (NOT YET PROVEN)
+
+1. **OddPart descent**: `odd-part(D(K)) * prod-g(K) = odd-part(D(0))`
+
+2. **Product bound**: `prod-g(K) ≤ D(0)`
+
+3. **g(k) divides D(k)**: Need to connect g to D (should follow from gcd-divides-diff)
 
 ## The Blocking Issue (Detailed)
 
