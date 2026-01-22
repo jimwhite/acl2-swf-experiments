@@ -1,18 +1,19 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;; putnam-2025-a1-lean-translation.lisp
 ;;;
-;;; Direct translation of Lean4 Putnam 2025 A1 definitions to ACL2.
+;;; Direct translation of Lean4 Putnam 2025 A1 proof to ACL2.
 ;;; 
-;;; STATUS: Definitions work. Key lemmas can be proven.
-;;;         Main theorem needs ACL2 expert guidance (see notes at end).
+;;; Source:
+;;;   https://github.com/project-numina/Numina-Putnam2025/blob/main/NuminaPutnam2025/putnam_2025_a1.lean
 ;;;
 ;;; The Lean4 theorem statement is:
 ;;;   {k | ¬ (2 * m k + 1).Coprime (2 * n k + 1)}.Finite
 ;;;
-;;; ACL2 equivalent would be:
-;;;   There exists bound N such that for all k >= N, gcd(2*m_k+1, 2*n_k+1) = 1
+;;; ACL2 formulation:
+;;;   For any K, count-bad(m0, n0, K) < D(0) = |m0 - n0|
+;;;   i.e., the set of "bad" indices has strictly fewer than |m0 - n0| elements.
 ;;;
-;;; Author: Claude (translation from Lean4)
+;;; Translation from Lean4 by Jim White and GitHub Copilot (Opus 4.5) with assistance by Perplexity.
 ;;; Date: January 2026
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
@@ -527,7 +528,7 @@
 ;;; Follows from hoddPart_descent since odd-part(D(K)) >= 1
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;; PART 6: THE CHALLENGE - WHAT LEAN4 DOES THAT'S HARD IN ACL2
+;;; PART 6: THE FINITENESS ARGUMENT SETUP
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;;
 ;;; The Lean4 proof uses a PIGEONHOLE ARGUMENT:
@@ -546,18 +547,17 @@
 ;;;
 ;;; 6. Contradiction! So S must be finite.
 ;;;
-;;; THE PROBLEM FOR ACL2:
-;;; - ACL2 doesn't have Finset.prod over arbitrary index sets
-;;; - ACL2 doesn't have Set.Infinite or Set.Finite predicates
-;;; - The bound "product over ANY subset ≤ D(0)" needs careful statement
-;;;
-;;; ALTERNATIVE APPROACH (constructive):
+;;; ACL2 APPROACH (constructive counting):
 ;;; 
-;;; Instead of contradiction, prove directly:
-;;;   For all k >= odd-part(D(0)), g(k) = 1
+;;; We prove: count-bad(K) < D(0) for all K
+;;; 
+;;; where count-bad(K) counts bad indices in {0, ..., K-1}.
+;;; This directly shows the bad set has < D(0) elements.
 ;;;
-;;; This requires showing that odd-part(D(k)) strictly decreases
-;;; at each "bad" step until it reaches 1.
+;;; Key lemmas used:
+;;; - prod-g(K) >= 3^(count-bad(K))  [each bad g >= 3]
+;;; - prod-g(K) <= D(0)              [from hoddPart-descent]
+;;; - 3^n > n for all n              [exponential grows faster]
 ;;;
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
