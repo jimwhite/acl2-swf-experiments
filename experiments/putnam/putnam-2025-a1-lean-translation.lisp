@@ -576,17 +576,14 @@
                   :in-theory (enable dm::divides my-oddp))))
 
 ;; D(k+1) = 2 * D(k) / g(k) as an equation
+;; Note: Only requires D(k) > 0 since pos-fix handles invalid inputs
 (defthm D-recurrence-quotient
   (implies (and (natp k)
-                (posp m0) (posp n0) (not (equal m0 n0)))
+                (posp (D-k m0 n0 k)))
            (equal (D-k m0 n0 (1+ k))
                   (/ (* 2 (D-k m0 n0 k))
                      (g-k m0 n0 k))))
-  :hints (("Goal" :use ((:instance D-recurrence)
-                        (:instance gcd-posp 
-                                   (a (1+ (* 2 (m-k m0 n0 k))))
-                                   (b (1+ (* 2 (n-k m0 n0 k))))))
-           :in-theory (disable D-recurrence gcd-posp))))
+  :hints (("Goal" :use ((:instance D-recurrence)))))
 
 ;; g(k) | 2*D(k)
 (defthm g-divides-2D
@@ -596,25 +593,21 @@
            :in-theory (e/d (dm::divides) (g-divides-D)))))
 
 ;; 2*D(k) / g(k) is positive when D(k) > 0
+;; Note: Only requires D(k) > 0 since pos-fix handles invalid inputs
 (defthm two-D-over-g-posp
   (implies (and (natp k)
-                (posp m0) (posp n0) (not (equal m0 n0))
                 (posp (D-k m0 n0 k)))
            (posp (/ (* 2 (D-k m0 n0 k)) (g-k m0 n0 k))))
-  :hints (("Goal" :use ((:instance gcd-posp 
-                                   (a (1+ (* 2 (m-k m0 n0 k))))
-                                   (b (1+ (* 2 (n-k m0 n0 k)))))
-                        (:instance g-divides-2D)
+  :hints (("Goal" :use ((:instance g-divides-2D)
                         (:instance divides-implies-quotient-posp
                                    (g (g-k m0 n0 k))
-                                   (n (* 2 (D-k m0 n0 k)))))
-           :in-theory (disable gcd-posp g-divides-2D divides-implies-quotient-posp))))
+                                   (n (* 2 (D-k m0 n0 k))))))))
 
 ;; odd-part(D(k+1)) * g(k) = odd-part(D(k))
 ;; Since D(k+1) = 2*D(k)/g(k) and g(k) is odd, we can use odd-part-quotient-by-odd
+;; Note: Only requires D(k) > 0 since pos-fix handles invalid inputs
 (defthm oddPart-single-step
   (implies (and (natp k)
-                (posp m0) (posp n0) (not (equal m0 n0))
                 (posp (D-k m0 n0 k)))
            (equal (* (odd-part (D-k m0 n0 (1+ k)))
                      (g-k m0 n0 k))
@@ -628,13 +621,10 @@
                                    (m (g-k m0 n0 k)))
                         (:instance two-D-over-g-posp)
                         (:instance g-k-is-odd)
-                        (:instance g-divides-2D)
-                        (:instance gcd-posp 
-                                   (a (1+ (* 2 (m-k m0 n0 k))))
-                                   (b (1+ (* 2 (n-k m0 n0 k))))))
+                        (:instance g-divides-2D))
            :in-theory (disable D-recurrence-quotient odd-divides-implies-divides-double
                                odd-part-times-odd two-D-over-g-posp g-k-is-odd
-                               g-divides-2D gcd-posp))))
+                               g-divides-2D))))
 
 ;; odd-part of a positive integer is positive
 (defthm odd-part-of-posp-is-posp
@@ -643,29 +633,46 @@
   :hints (("Goal" :in-theory (enable odd-part)))
   :rule-classes :type-prescription)
 
-;; D(k) type
+;; D(k) type - always a nat due to abs
 (defthm D-k-natp-helper
-  (implies (and (natp k) (posp m0) (posp n0) (not (equal m0 n0)))
-           (natp (D-k m0 n0 k)))
-  :hints (("Goal" :in-theory (enable D-k))))
+  (natp (D-k m0 n0 k))
+  :hints (("Goal" :in-theory (enable D-k)))
+  :rule-classes :type-prescription)
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;; LEMMA 6: hoddPart_descent - The Key Descent Formula
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+;; Helper: D(k) > 0 implies D(k+1) > 0
+;; Note: Only requires D(k) > 0 since pos-fix handles invalid inputs
+(defthm D-k-posp-step
+  (implies (and (natp k)
+                (posp (D-k m0 n0 k)))
+           (posp (D-k m0 n0 (1+ k))))
+  :hints (("Goal" :use ((:instance D-recurrence-quotient)
+                        (:instance two-D-over-g-posp)))))
+
+;; Helper induction scheme for nat induction
+(defun nat-induct (k)
+  (if (zp k)
+      0
+    (nat-induct (1- k))))
 
 ;; LEMMA 6 (Lean4: hoddPart_descent):
 ;;   odd-part(D(K)) * prod-g(K) = odd-part(D(0))
 ;;
 ;; This is the key formula showing that the product of g values
 ;; equals the ratio of odd-parts, which bounds the product.
+;; Note: Only requires D(0) > 0 since pos-fix handles invalid inputs
 (defthm hoddPart-descent
   (implies (and (natp K)
-                (posp m0) (posp n0) (not (equal m0 n0))
                 (posp (D-k m0 n0 0)))
            (equal (* (odd-part (D-k m0 n0 K))
                      (prod-g m0 n0 K))
                   (odd-part (D-k m0 n0 0))))
-  :hints (("Goal" :induct (prod-g m0 n0 K))
+  :hints (("Goal" :induct (prod-g m0 n0 K)
+                  :in-theory (e/d (prod-g) 
+                                  (D-k g-k odd-part odd-part-quotient-by-odd)))
           ("Subgoal *1/2" 
            :use ((:instance oddPart-single-step (k (1- K)))))))
 
@@ -687,42 +694,11 @@
   :hints (("Goal" :in-theory (enable prod-g)))
   :rule-classes :type-prescription)
 
-;; D(k+1) > 0 when D(k) > 0 (step case)
-(defthm D-k-posp-step
-  (implies (and (natp k)
-                (posp m0) (posp n0) (not (equal m0 n0))
-                (posp (D-k m0 n0 k)))
-           (posp (D-k m0 n0 (1+ k))))
-  :hints (("Goal" :use ((:instance D-recurrence-quotient)
-                        (:instance two-D-over-g-posp))
-           :in-theory (disable D-recurrence-quotient two-D-over-g-posp))))
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;; LEMMA 7 HELPERS AND MAIN BOUND
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-
-;; Helper induction function for natural number induction
-(defun nat-induct (k)
-  (if (zp k) k (nat-induct (1- k))))
-
 ;; D(k) is a natural number (integer >= 0)
 (defthm D-k-natp
   (implies (and (natp k) (posp m0) (posp n0) (not (equal m0 n0)))
            (natp (D-k m0 n0 k)))
   :hints (("Goal" :in-theory (enable D-k))))
-
-;; D(k) >= 0 for all k when inputs are valid
-(defthm D-k-natp-all
-  (implies (and (natp k)
-                (posp m0) (posp n0) (not (equal m0 n0))
-                (posp (D-k m0 n0 0)))
-           (natp (D-k m0 n0 k)))
-  :hints (("Goal" :induct (nat-induct k)
-                  :in-theory (enable D-k))
-          ("Subgoal *1/2"
-           :use ((:instance D-recurrence (k (1- k)))
-                 (:instance g-divides-D (k (1- k))))
-           :in-theory (e/d (D-k) (D-recurrence g-divides-D)))))
 
 ;; D(0) > 0 when m0 ≠ n0
 (defthm D-k-0-when-distinct
@@ -743,7 +719,6 @@
 ;; prod-g(K) > 0, odd-part(D(0)) >= 1, so odd-part(D(K)) >= 1
 (defthm odd-part-D-k-posp
   (implies (and (natp K)
-                (posp m0) (posp n0) (not (equal m0 n0))
                 (posp (D-k m0 n0 0)))
            (posp (odd-part (D-k m0 n0 K))))
   :hints (("Goal" :use ((:instance hoddPart-descent)
@@ -760,10 +735,9 @@
 ;; Since odd-part(D(K)) >= 1 and D(K) >= odd-part(D(K)), we have D(K) >= 1
 (defthm D-k-posp-all
   (implies (and (natp k)
-                (posp m0) (posp n0) (not (equal m0 n0))
                 (posp (D-k m0 n0 0)))
            (posp (D-k m0 n0 k)))
-  :hints (("Goal" :use ((:instance odd-part-D-k-posp)
+  :hints (("Goal" :use ((:instance odd-part-D-k-posp (K k))
                         (:instance odd-part-leq-n (n (D-k m0 n0 k))))
            :in-theory (disable odd-part-D-k-posp odd-part-leq-n))))
 
@@ -777,7 +751,6 @@
 ;; prod-g(K) <= odd-part(D(0))
 (defthm prod-g-leq-odd-part-D0
   (implies (and (natp K)
-                (posp m0) (posp n0) (not (equal m0 n0))
                 (posp (D-k m0 n0 0)))
            (<= (prod-g m0 n0 K) (odd-part (D-k m0 n0 0))))
   :hints (("Goal" :use ((:instance hoddPart-descent)
@@ -799,7 +772,6 @@
 ;; This is crucial for the finiteness argument!
 (defthm prod-g-bound
   (implies (and (natp K)
-                (posp m0) (posp n0) (not (equal m0 n0))
                 (posp (D-k m0 n0 0)))
            (<= (prod-g m0 n0 K) (D-k m0 n0 0)))
   :hints (("Goal" :use ((:instance prod-g-leq-odd-part-D0)
