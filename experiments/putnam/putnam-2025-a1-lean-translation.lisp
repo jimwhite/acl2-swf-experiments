@@ -134,6 +134,61 @@
 (defun m-k (m0 n0 k) (car (mn-seq m0 n0 k)))
 (defun n-k (m0 n0 k) (cdr (mn-seq m0 n0 k)))
 
+;; 2m+1 is positive when m is positive
+(defthm two-m-plus-one-posp
+  (implies (posp m)
+           (posp (+ 1 (* 2 m))))
+  :rule-classes :type-prescription)
+
+;; next-mn returns positive car
+(defthm next-mn-car-posp
+  (posp (car (next-mn m n)))
+  :hints (("Goal" :in-theory (enable next-mn)
+                  :use ((:instance quotient-by-gcd-posp
+                                   (a (+ 1 (* 2 (pos-fix m))))
+                                   (b (+ 1 (* 2 (pos-fix n))))))))
+  :rule-classes :type-prescription)
+
+;; next-mn returns positive cdr
+(defthm next-mn-cdr-posp
+  (posp (cdr (next-mn m n)))
+  :hints (("Goal" :in-theory (enable next-mn)
+                  :use ((:instance quotient-by-gcd-posp
+                                   (a (+ 1 (* 2 (pos-fix n))))
+                                   (b (+ 1 (* 2 (pos-fix m)))))
+                        (:instance dm::gcd-commutative
+                                   (x (+ 1 (* 2 (pos-fix m))))
+                                   (y (+ 1 (* 2 (pos-fix n))))))))
+  :rule-classes :type-prescription)
+
+;; mn-seq returns a pair of positive integers (proved by simultaneous induction)
+(defthm mn-seq-posp-pair
+  (and (posp (car (mn-seq m0 n0 k)))
+       (posp (cdr (mn-seq m0 n0 k))))
+  :hints (("Goal" :induct (mn-seq m0 n0 k)
+                  :in-theory (enable mn-seq next-mn))
+          ("Subgoal *1/2" 
+           :use ((:instance quotient-by-gcd-posp
+                            (a (+ 1 (* 2 (car (mn-seq (pos-fix m0) (pos-fix n0) (1- k))))))
+                            (b (+ 1 (* 2 (cdr (mn-seq (pos-fix m0) (pos-fix n0) (1- k)))))))
+                 (:instance quotient-by-gcd-posp
+                            (a (+ 1 (* 2 (cdr (mn-seq (pos-fix m0) (pos-fix n0) (1- k))))))
+                            (b (+ 1 (* 2 (car (mn-seq (pos-fix m0) (pos-fix n0) (1- k)))))))
+                 (:instance dm::gcd-commutative
+                            (x (+ 1 (* 2 (car (mn-seq (pos-fix m0) (pos-fix n0) (1- k))))))
+                            (y (+ 1 (* 2 (cdr (mn-seq (pos-fix m0) (pos-fix n0) (1- k))))))))))
+  :rule-classes ((:type-prescription :corollary (posp (car (mn-seq m0 n0 k))))
+                 (:type-prescription :corollary (posp (cdr (mn-seq m0 n0 k))))))
+
+;; Accessor type rules (derived from mn-seq-posp-pair)
+(defthm m-k-posp
+  (posp (m-k m0 n0 k))
+  :rule-classes :type-prescription)
+
+(defthm n-k-posp
+  (posp (n-k m0 n0 k))
+  :rule-classes :type-prescription)
+
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;; PART 3: GCD AND DIFFERENCE FUNCTIONS
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
