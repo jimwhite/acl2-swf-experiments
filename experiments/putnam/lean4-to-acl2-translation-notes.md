@@ -273,3 +273,38 @@ The bound follows from:
 - So product of g values over any indices divides odd-part(D(0)) ≤ D(0)
 
 **Question**: What's the standard ACL2 idiom for "product over a finite set of indices"?
+
+---
+
+## Update: Finset.prod Approach Implemented
+
+Based on the "ACL2 Equivalent of Lean4's Finset.prod" recommendations, I've created:
+
+**[putnam-2025-a1-finset-approach.lisp](putnam-2025-a1-finset-approach.lisp)** - Certifies successfully!
+
+### Key Implementation
+
+```lisp
+;; Product over arbitrary list of indices (Finset.prod equivalent)
+(defun prod-g-over-list (m0 n0 indices)
+  "Product of g(k) for each k in indices"
+  (if (atom indices)
+      1
+    (* (g-k m0 n0 (car indices))
+       (prod-g-over-list m0 n0 (cdr indices)))))
+```
+
+### Remaining Work
+
+The file has the structure but these lemmas still need proofs:
+
+1. **D-recurrence**: `D(k+1) * g(k) = 2 * D(k)`
+2. **oddpart-descent**: `odd-part(D(K)) * prod-g(K) = odd-part(D(0))`
+3. **prod-g-over-list-bounded**: `prod-g-over-list(indices) <= D(0)` for any finite index list
+4. **bad-g-geq-3**: `g(k) > 1` implies `g(k) >= 3`
+5. **putnam-2025-a1**: For `k >= bound-N`, `g(k) = 1`
+
+The proof structure follows the Lean4 contradiction argument:
+- If there were D(0)+1 bad indices, their g-product would be ≥ 3^{D(0)+1}
+- But any g-product is bounded by D(0)
+- Since 3^{D(0)+1} > D(0), contradiction
