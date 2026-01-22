@@ -433,14 +433,91 @@
            :in-theory (disable odd-part-times-odd divides-implies-quotient-posp))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;; DIVISIBILITY LEMMAS - g(k) DIVIDES D(k) (PROVEN!)
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+;; 2 does not divide an odd number
+(defthm two-not-divides-odd
+  (implies (my-oddp g)
+           (not (dm::divides 2 g)))
+  :hints (("Goal" :in-theory (enable my-oddp dm::divides))))
+
+;; If g is odd and g | 2x, then g | x (key: odd*integer=even iff integer is even)
+(defthm odd-divides-double-implies-divides
+  (implies (and (posp g)
+                (integerp x)
+                (my-oddp g)
+                (dm::divides g (* 2 x)))
+           (dm::divides g x))
+  :hints (("Goal" :in-theory (enable dm::divides my-oddp)
+                  :use ((:instance dm::evenp-times
+                                   (dm::x g)
+                                   (dm::y (/ (* 2 x) g)))))))
+
+;; g(k) divides 2*(m(k) - n(k)) - follows from gcd-divides-diff
+(defthm g-divides-twice-diff
+  (implies (natp k)
+           (dm::divides (g-k m0 n0 k)
+                        (* 2 (- (m-k m0 n0 k) (n-k m0 n0 k)))))
+  :hints (("Goal" :in-theory (enable g-k m-k n-k)
+                  :use ((:instance gcd-divides-diff
+                                   (a (+ 1 (* 2 (car (mn-seq m0 n0 k)))))
+                                   (b (+ 1 (* 2 (cdr (mn-seq m0 n0 k))))))))))
+
+;; g(k) divides (m(k) - n(k)) since g(k) is odd
+(defthm g-divides-diff-raw
+  (implies (natp k)
+           (dm::divides (g-k m0 n0 k)
+                        (- (m-k m0 n0 k) (n-k m0 n0 k))))
+  :hints (("Goal" :use ((:instance g-divides-twice-diff)
+                        (:instance odd-divides-double-implies-divides
+                                   (g (g-k m0 n0 k))
+                                   (x (- (m-k m0 n0 k) (n-k m0 n0 k))))
+                        (:instance g-k-is-odd)))))
+
+;; If d | x then d | |x|
+(defthm divides-abs
+  (implies (dm::divides d x)
+           (dm::divides d (abs x)))
+  :hints (("Goal" :in-theory (enable dm::divides)
+                  :cases ((>= x 0)))))
+
+;;; LEMMA 3 (Lean4: hg_dvd_D): g(k) | D(k) - PROVEN!
+(defthm g-divides-D
+  (implies (natp k)
+           (dm::divides (g-k m0 n0 k) (D-k m0 n0 k)))
+  :hints (("Goal" :in-theory (enable D-k)
+                  :use ((:instance g-divides-diff-raw)
+                        (:instance divides-abs
+                                   (d (g-k m0 n0 k))
+                                   (x (- (m-k m0 n0 k) (n-k m0 n0 k))))))))
+
+;; If g is odd and g | n, then g | odd-part(n)
+(defthm odd-divides-odd-part
+  (implies (and (posp n) (posp g)
+                (my-oddp g)
+                (dm::divides g n))
+           (dm::divides g (odd-part n)))
+  :hints (("Goal" :in-theory (enable dm::divides)
+                  :use ((:instance odd-part-quotient-by-odd (n n) (g g))
+                        (:instance divides-implies-quotient-posp)))))
+
+;; g(k) | odd-part(D(k))
+(defthm g-divides-odd-part-D
+  (implies (and (natp k) (posp (D-k m0 n0 k)))
+           (dm::divides (g-k m0 n0 k) (odd-part (D-k m0 n0 k))))
+  :hints (("Goal" :use ((:instance odd-divides-odd-part
+                                   (g (g-k m0 n0 k))
+                                   (n (D-k m0 n0 k)))
+                        (:instance g-divides-D)
+                        (:instance g-k-is-odd)))))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;; REMAINING LEMMAS (TO BE PROVEN)
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 ;;; LEMMA 1 (Lean4: hne): m_k ≠ n_k for all k
 ;;; (defthm mn-seq-distinct ...)
-
-;;; LEMMA 3 (Lean4: hg_dvd_D): g(k) | D(k)
-;;; (The gcd divides the absolute difference - need to connect g to D)
 
 ;;; LEMMA 6 (Lean4: hoddPart_descent): 
 ;;;   odd-part(D(K)) * prod-g(K) = odd-part(D(0))
