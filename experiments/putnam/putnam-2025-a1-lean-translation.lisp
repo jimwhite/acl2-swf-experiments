@@ -347,10 +347,10 @@
                         (:instance odd-gt-1-means-geq-3 (n (g-k m0 n0 k)))))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;; DIVISIBILITY LEMMAS
+;;; DIVISIBILITY LEMMAS (using dm::divides-minus from euclid)
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
-;; gcd divides difference
+;; gcd divides difference (combines dm::divides-sum with dm::divides-minus)
 (defthm gcd-divides-diff
   (implies (and (integerp a) (integerp b) (not (equal a 0)) (not (equal b 0)))
            (dm::divides (dm::gcd a b) (- a b)))
@@ -364,6 +364,38 @@
                                    (z (- b)))))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;; ODD-PART LEMMAS (needed for hoddPart_descent)
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+;; Key fact: odd-part(n) = n when n is odd
+(defthm odd-part-of-odd
+  (implies (my-oddp n)
+           (equal (odd-part n) n))
+  :hints (("Goal" :in-theory (enable odd-part my-oddp))))
+
+;; odd-part(2*n) = odd-part(n)
+(defthm odd-part-of-double
+  (implies (posp n)
+           (equal (odd-part (* 2 n)) (odd-part n)))
+  :hints (("Goal" :in-theory (enable odd-part)
+                  :expand ((odd-part (* 2 n))))))
+
+;; KEY LEMMA: odd-part(n/g) * g = odd-part(n) when g is odd and g|n
+;; (This is hoddPart-descent-lemma-2 from the search results)
+;; Proof idea: g is odd so doesn't affect factors of 2, only odd part
+;; TODO: This requires induction on odd-part structure
+#||
+(defthm odd-part-quotient-by-odd
+  (implies (and (posp n)
+                (posp g)
+                (my-oddp g)
+                (dm::divides g n))
+           (equal (* g (odd-part (/ n g)))
+                  (odd-part n)))
+  :hints ...)
+||#
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;; REMAINING LEMMAS (TO BE PROVEN)
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
@@ -375,8 +407,10 @@
 
 ;;; LEMMA 6 (Lean4: hoddPart_descent): 
 ;;;   odd-part(D(K)) * prod-g(K) = odd-part(D(0))
+;;; Depends on: odd-part-quotient-by-odd
 
 ;;; LEMMA 7 (Lean4: hprod_bound): prod-g(K) ≤ D(0)
+;;; Follows from hoddPart_descent since odd-part(D(K)) >= 1
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;; PART 6: THE CHALLENGE - WHAT LEAN4 DOES THAT'S HARD IN ACL2
