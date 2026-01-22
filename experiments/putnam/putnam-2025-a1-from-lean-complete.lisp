@@ -685,6 +685,77 @@
                                    mn-seq-distinct mn-seq next-mn)))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;; PART 15: MAIN THEOREM - PUTNAM 2025 A1
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;;
+;;; The main theorem: For any distinct positive integers m0, n0,
+;;; there exists a bound N such that for all k >= N,
+;;; gcd(2*m_k + 1, 2*n_k + 1) = 1.
+;;;
+;;; This is equivalent to saying the set of "bad" k is finite.
+;;; We prove that N = bound-N(m0, n0) = odd-part(|m0 - n0|) works.
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+;; diff-odd-part is always positive
+(defthm diff-odd-part-posp
+  (implies (and (posp m0) (posp n0) (not (= m0 n0)) (natp k))
+           (posp (diff-odd-part m0 n0 k)))
+  :hints (("Goal" :in-theory (enable diff-odd-part m-k n-k)
+                  :use (mn-seq-distinct)))
+  :rule-classes (:rewrite :type-prescription))
+
+;; Induction scheme for the main descent argument
+(defun diff-odd-part-descent-ind (m0 n0 k)
+  (declare (xargs :measure (nfix (diff-odd-part m0 n0 k))))
+  (if (or (not (posp m0)) (not (posp n0)) (= m0 n0) (not (natp k)))
+      k
+    (if (equal (gcd-k m0 n0 k) 1)
+        k
+      (if (zp (diff-odd-part m0 n0 k))
+          k
+        (diff-odd-part-descent-ind m0 n0 (1+ k))))))
+
+;; The key descent lemma: eventually we reach gcd = 1
+;; We prove: if diff-odd-part(k) = d, then within d steps we have gcd = 1
+(defthm eventually-coprime-helper
+  (implies (and (posp m0) (posp n0) (not (= m0 n0)) (natp k)
+                (natp steps)
+                (>= steps (diff-odd-part m0 n0 k)))
+           (or (equal (gcd-k m0 n0 k) 1)
+               (coprime-transformed-p m0 n0 (+ k steps))))
+  :hints (("Goal" :induct (diff-odd-part-descent-ind m0 n0 k)
+                  :do-not-induct t)
+          ("Subgoal 3" :use ((:instance gcd-is-1-when-diff-odd-part-is-1)
+                             (:instance putnam-2025-a1-from-power-of-2
+                                        (k0 k) (k (+ k steps))))
+                       :in-theory (e/d (power-of-2-p coprime-transformed-p gcd-k)
+                                       (gcd-is-1-when-diff-odd-part-is-1
+                                        putnam-2025-a1-from-power-of-2))))
+  :rule-classes nil)
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;; PUTNAM 2025 A1 - MAIN THEOREM
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;;
+;;; For all k >= bound-N(m0, n0), we have gcd(2*m_k+1, 2*n_k+1) = 1.
+;;; 
+;;; This is equivalent to Lean4's statement that the set
+;;; {k | ¬ (2 * m k + 1).Coprime (2 * n k + 1)} is finite.
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+(defthm putnam-2025-a1
+  (implies (and (posp m0) (posp n0) (not (= m0 n0))
+                (natp k)
+                (>= k (bound-N m0 n0)))
+           (coprime-transformed-p m0 n0 k))
+  :hints (("Goal" :use ((:instance eventually-coprime-helper
+                                   (k 0)
+                                   (steps k))
+                        (:instance diff-odd-part-at-0))
+                  :in-theory (disable diff-odd-part-at-0 bound-N 
+                                      coprime-transformed-p gcd-k))))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;; SUMMARY OF PROVEN RESULTS
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;;
@@ -705,14 +776,11 @@
 ;;;    (putnam-2025-a1-from-power-of-2)
 ;;;    => Coprime property persists forever
 ;;;
-;;; FINITENESS ARGUMENT:
-;;; - diff-odd-part starts at bound-N (a positive integer)
-;;; - At each "bad" step (gcd > 1), diff-odd-part decreases by at least 1
-;;; - Therefore, there can be at most bound-N bad steps
-;;; - After at most bound-N steps, diff-odd-part reaches 1
-;;; - When diff-odd-part = 1, gcd = 1 (coprime)
-;;; - Once coprime at step k0, coprime for all k >= k0
+;;; 5. MAIN THEOREM (putnam-2025-a1):
+;;;    For all k >= bound-N(m0, n0) = odd-part(|m0 - n0|),
+;;;    gcd(2*m_k + 1, 2*n_k + 1) = 1.
 ;;;
-;;; QED: The set of k where gcd(2m_k+1, 2n_k+1) > 1 is finite,
-;;;      bounded by odd-part(|m0 - n0|).
+;;; This proves the Putnam 2025 A1 problem: the set of k where
+;;; gcd(2m_k+1, 2n_k+1) > 1 is finite (bounded by odd-part(|m0 - n0|)).
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
