@@ -18,11 +18,51 @@
 
 (in-package "ACL2")
 
-;; For dm::gcd
+;; For dm::gcd and dm::divides
 (include-book "projects/numbers/euclid" :dir :system)
 
 ;; For arithmetic
 (include-book "arithmetic-5/top" :dir :system)
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;; BRIDGE LEMMAS: Connecting dm::divides to integerp
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;; These derive from the definition of dm::divides and dm::gcd-divides
+
+;; dm::divides means the quotient is an integer (from definition)
+(defthm divides-means-integerp-quotient
+  (implies (dm::divides d a)
+           (integerp (/ a d)))
+  :hints (("Goal" :in-theory (enable dm::divides))))
+
+;; gcd(a,b) divides a when a is nonzero (instance of dm::gcd-divides)
+(defthm gcd-divides-first
+  (implies (and (integerp a) (integerp b) (not (equal a 0)))
+           (dm::divides (dm::gcd a b) a))
+  :hints (("Goal" :use ((:instance dm::gcd-divides (x a) (y b))))))
+
+;; Combining: a/gcd(a,b) is an integer
+(defthm quotient-by-gcd-integerp
+  (implies (and (integerp a) (integerp b) (not (equal a 0)))
+           (integerp (/ a (dm::gcd a b))))
+  :hints (("Goal" :use ((:instance gcd-divides-first)
+                        (:instance divides-means-integerp-quotient 
+                                   (d (dm::gcd a b)))))))
+
+;; gcd is positive when inputs are positive (instance of dm::gcd-pos)
+(defthm gcd-posp
+  (implies (and (posp a) (posp b))
+           (posp (dm::gcd a b)))
+  :hints (("Goal" :use ((:instance dm::gcd-pos (x a) (y b)))))
+  :rule-classes :type-prescription)
+
+;; a/gcd(a,b) is positive when a is positive
+(defthm quotient-by-gcd-posp
+  (implies (and (posp a) (posp b))
+           (posp (/ a (dm::gcd a b))))
+  :hints (("Goal" :use ((:instance quotient-by-gcd-integerp)
+                        (:instance gcd-posp))))
+  :rule-classes :type-prescription)
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;; PART 1: ODD-PART FUNCTION
@@ -66,23 +106,30 @@
 ;;;   numerator = p / gcd(p,q)
 ;;;   denominator = q / gcd(p,q)
 
+;; Coerce to positive integer, defaulting to 1
+(defun pos-fix (x)
+  (if (posp x) x 1))
+
 (defun next-mn (m n)
-  "Given (m, n), return (m', n') where m'/n' = (2m+1)/(2n+1) reduced to lowest terms."
-  (declare (xargs :guard (and (posp m) (posp n))))
-  (let* ((a (+ 1 (* 2 m)))
+  "Given (m, n), return (m', n') where m'/n' = (2m+1)/(2n+1) reduced to lowest terms.
+   Coerces non-positive inputs to 1."
+  (let* ((m (pos-fix m))
+         (n (pos-fix n))
+         (a (+ 1 (* 2 m)))
          (b (+ 1 (* 2 n)))
          (g (dm::gcd a b)))
     (cons (/ a g) (/ b g))))
 
 (defun mn-seq (m0 n0 k)
-  "Return (m_k . n_k) for the sequence starting at (m0, n0)."
-  (declare (xargs :guard (and (posp m0) (posp n0) (natp k))
-                  :measure (nfix k)
-                  :verify-guards nil))
-  (if (zp k)
-      (cons m0 n0)
-    (let ((prev (mn-seq m0 n0 (1- k))))
-      (next-mn (car prev) (cdr prev)))))
+  "Return (m_k . n_k) for the sequence starting at (m0, n0).
+   Coerces non-positive m0/n0 to 1, non-natural k to 0."
+  (declare (xargs :measure (nfix k)))
+  (let ((m0 (pos-fix m0))
+        (n0 (pos-fix n0)))
+    (if (zp k)
+        (cons m0 n0)
+      (let ((prev (mn-seq m0 n0 (1- k))))
+        (next-mn (car prev) (cdr prev))))))
 
 (defun m-k (m0 n0 k) (car (mn-seq m0 n0 k)))
 (defun n-k (m0 n0 k) (cdr (mn-seq m0 n0 k)))
@@ -112,9 +159,7 @@
 
 (defun prod-g (m0 n0 k)
   "Product of g(0), g(1), ..., g(k-1). Empty product (k=0) is 1."
-  (declare (xargs :guard (and (posp m0) (posp n0) (natp k))
-                  :measure (nfix k)
-                  :verify-guards nil))
+  (declare (xargs :measure (nfix k)))
   (if (zp k)
       1
     (* (g-k m0 n0 (1- k)) (prod-g m0 n0 (1- k)))))
