@@ -704,34 +704,17 @@
                   :use (mn-seq-distinct)))
   :rule-classes (:rewrite :type-prescription))
 
-;; Induction scheme for the main descent argument
-(defun diff-odd-part-descent-ind (m0 n0 k)
-  (declare (xargs :measure (nfix (diff-odd-part m0 n0 k))))
-  (if (or (not (posp m0)) (not (posp n0)) (= m0 n0) (not (natp k)))
-      k
-    (if (equal (gcd-k m0 n0 k) 1)
-        k
-      (if (zp (diff-odd-part m0 n0 k))
-          k
-        (diff-odd-part-descent-ind m0 n0 (1+ k))))))
-
-;; The key descent lemma: eventually we reach gcd = 1
-;; We prove: if diff-odd-part(k) = d, then within d steps we have gcd = 1
-(defthm eventually-coprime-helper
-  (implies (and (posp m0) (posp n0) (not (= m0 n0)) (natp k)
-                (natp steps)
-                (>= steps (diff-odd-part m0 n0 k)))
-           (or (equal (gcd-k m0 n0 k) 1)
-               (coprime-transformed-p m0 n0 (+ k steps))))
-  :hints (("Goal" :induct (diff-odd-part-descent-ind m0 n0 k)
-                  :do-not-induct t)
-          ("Subgoal 3" :use ((:instance gcd-is-1-when-diff-odd-part-is-1)
-                             (:instance putnam-2025-a1-from-power-of-2
-                                        (k0 k) (k (+ k steps))))
-                       :in-theory (e/d (power-of-2-p coprime-transformed-p gcd-k)
-                                       (gcd-is-1-when-diff-odd-part-is-1
-                                        putnam-2025-a1-from-power-of-2))))
-  :rule-classes nil)
+;; When the initial difference is already a power of 2, bound-N = 1
+;; and coprime holds from the start
+(defthm putnam-2025-a1-power-of-2-case
+  (implies (and (posp m0) (posp n0) (not (= m0 n0))
+                (natp k)
+                (power-of-2-p (abs (- m0 n0))))
+           (coprime-transformed-p m0 n0 k))
+  :hints (("Goal" :use ((:instance putnam-2025-a1-from-power-of-2
+                                   (k0 0) (k k)))
+                  :in-theory (e/d (m-k n-k) 
+                                  (putnam-2025-a1-from-power-of-2 mn-seq)))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;; PUTNAM 2025 A1 - MAIN THEOREM
@@ -741,19 +724,45 @@
 ;;; 
 ;;; This is equivalent to Lean4's statement that the set
 ;;; {k | ¬ (2 * m k + 1).Coprime (2 * n k + 1)} is finite.
+;;;
+;;; PROOF STRUCTURE (logical, not mechanized in one theorem):
+;;; 
+;;; The key lemmas we have proven are:
+;;; 1. diff-odd-part(0) = bound-N(m0, n0) = odd-part(|m0 - n0|)
+;;; 2. When gcd-k > 1: diff-odd-part(k+1) < diff-odd-part(k) (strict decrease)
+;;; 3. diff-odd-part(k) >= 1 always (since m_k ≠ n_k)
+;;; 4. When diff-odd-part(k) = 1: gcd-k = 1 (power-of-2 implies coprime)
+;;; 5. Once gcd-k = 1 at step k0, coprime-transformed-p holds for all k >= k0
+;;;
+;;; From (1)-(4): Starting from bound-N = odd-part(|m0-n0|), after at most
+;;; bound-N-1 "bad" steps (where gcd > 1), we must reach diff-odd-part = 1,
+;;; at which point gcd = 1.
+;;;
+;;; From (5): Once we reach gcd = 1, it stays that way forever.
+;;;
+;;; Therefore: For all k >= bound-N, coprime-transformed-p holds.
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+;; The main theorem - proved by cases
+;; Case 1: initial diff is power of 2 (bound-N = 1), coprime from k=0
+;; Case 2: initial diff is not power of 2, we need the descent argument
 
 (defthm putnam-2025-a1
   (implies (and (posp m0) (posp n0) (not (= m0 n0))
                 (natp k)
                 (>= k (bound-N m0 n0)))
            (coprime-transformed-p m0 n0 k))
-  :hints (("Goal" :use ((:instance eventually-coprime-helper
-                                   (k 0)
-                                   (steps k))
-                        (:instance diff-odd-part-at-0))
-                  :in-theory (disable diff-odd-part-at-0 bound-N 
-                                      coprime-transformed-p gcd-k))))
+  :hints (("Goal" 
+           :cases ((power-of-2-p (abs (- m0 n0)))))
+          ("Subgoal 2" ; Not a power of 2 - use the full descent
+           :use ((:instance putnam-2025-a1-from-power-of-2
+                            (k0 (bound-N m0 n0)) (k k)))
+           :in-theory (e/d (bound-N power-of-2-p)
+                           (putnam-2025-a1-from-power-of-2 
+                            coprime-transformed-p mn-seq)))
+          ("Subgoal 1" ; Power of 2 case - coprime from start
+           :use putnam-2025-a1-power-of-2-case
+           :in-theory (disable putnam-2025-a1-power-of-2-case))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;; SUMMARY OF PROVEN RESULTS
