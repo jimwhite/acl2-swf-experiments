@@ -12,7 +12,8 @@
     },
     "containerEnv": {
         "JUPYTER_PORT": "8888",
-        "RESTARTABLE": "yes"
+        "RESTARTABLE": "yes",
+        "USER": "jovyan"
     },
     // remoteEnv supports ${containerEnv:VAR} syntax for PATH modification
     "remoteEnv": {
