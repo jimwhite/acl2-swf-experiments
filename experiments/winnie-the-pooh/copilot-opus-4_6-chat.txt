@@ -1,0 +1,944 @@
+User: You're a formal methods game designer and we have a project to do in ACL2.  Note that ACL2 MCP is available to help test and debug code.
+
+In the puzzle design below, please check the logic and solution for correctness by writing code in Python using a suitable planning library. Title: Forest Friends Frenzy Objective: Solve the logic puzzle to discover each friend's favorite activity and the order in which they perform them during the day. Description: In the Hundred Acre Wood, four friends (Winnie the Pooh, Piglet, Tigger, and Eeyore) have four favorite activities (honey tasting, bouncing, exploring, and gardening). Each friend has a different favorite activity, and they each perform their favorite activity at a different time of the day (morning, noon, afternoon, and evening). Players must use the given clues to determine the favorite activity of each friend and the order in which they perform them. Clues: Tigger does his favorite activity earlier in the day than Eeyore. The friend who loves honey tasting performs their activity later in the day than the friend who enjoys exploring. Piglet performs his favorite activity in the morning. Winnie the Pooh does not like gardening. To help the developers get started, here's a solution grid: Friend Activity Time of Day Winnie the Pooh Piglet Morning Tigger Eeyore Players can use a process of elimination and deduction to complete the grid: Since Piglet performs his favorite activity in the morning, we can add "Morning" in the Time of Day column for Piglet. Pooh doesn't like gardening, so we can eliminate "gardening" as an option for his favorite activity. Tigger does his favorite activity earlier than Eeyore, and since Piglet already occupies the "morning" slot, Tigger must do his activity at noon, and Eeyore does his activity in the afternoon. The only available activity for Piglet is gardening, so his favorite activity is gardening. Tigger cannot have honey tasting as his favorite activity because honey tasting happens later than exploring. Therefore, Tigger's favorite activity is exploring. Since Pooh cannot have gardening as his favorite activity and bouncing is the only remaining option, Pooh's favorite activity is bouncing. Finally, Eeyore's favorite activity is honey tasting, and the only remaining time slot is the evening. Solution Grid: Friend Activity Time of Day Winnie the Pooh Bouncing Afternoon Piglet Gardening Morning Tigger Exploring Noon Eeyore Honey Tasting Evening Once the players solve the logic puzzle and complete the grid, Kanga will provide the final clue for Roo's location, allowing them to progress in the game.
+
+GitHub Copilot: Optimizing tool selection...I'll analyze the puzzle logic and verify the solution using Python's `python-constraint` library. Let me first set up and write the solver. 
+
+Created 4 todos
+
+Created [](file:///workspaces/acl2-swf-experiments/experiments/winnie-the-pooh/solve_puzzle.py)
+
+Ran terminal command:  pip install python-constraint 2>&1 | tail -5
+
+Configuring a Python Environment
+Completed with input: {
+  "resourcePath": "/workspaces/acl2-swf-experiments/experiments/winnie-the-pooh/solve_puzzle.py"
+}
+
+Installing python-constraint in Python 3.13.12 (.venv)
+Completed with input: {
+  "packageList": [
+    "python-constraint"
+  ],
+  "resourcePath": "/workspaces/acl2-swf-experiments/experiments/winnie-the-pooh/solve_puzzle.py"
+}
+
+Starting: *Run solver & check solution* (2/4)
+
+Ran terminal command:  /workspaces/acl2-swf-experiments/.venv/bin/python /workspaces/acl2-swf-experiments/experiments/winnie-the-pooh/solve_puzzle.py
+
+Made changes.
+
+User: Yes, Python is dandy but we need the game logic verified with ACL2.  There is SMTLink available for verifyication using Z3.
+
+GitHub Copilot: Created 5 todos
+
+Searched codebase for "SMTLink smtlink Z3 include-book example usage", 26 results
+
+Good, I now have a solid understanding of how SMTLink works in this workspace. Let me first run the Python solver to establish ground truth, then look at a working SMTLink example more closely before writing the ACL2 formalization. 
+
+Ran terminal command:  /workspaces/acl2-swf-experiments/.venv/bin/python /workspaces/acl2-swf-experiments/experiments/winnie-the-pooh/solve_puzzle.py
+
+Excellent! The Python solver confirms critical findings. Now let me examine an existing working SMTLink example to model my ACL2 code after. 
+
+Starting: *Study SMTLink examples* (3/6)
+
+Read [](file:///workspaces/acl2-swf-experiments/experiments/smtlink/01-smtlink-basics.ipynb#1-1), lines 1 to 200
+
+Read [](file:///workspaces/acl2-swf-experiments/experiments/agents/experiment-02-smtlink-react.lisp#1-1), lines 1 to 100
+
+Now I have great context on how SMTLink works. However, SMTLink is primarily designed for arithmetic/polynomial proofs via Z3. For a discrete logic puzzle, pure ACL2 reasoning is actually more natural and reliable. Let me write a dual approach: pure ACL2 for the core verification (which is the right fit), with SMTLink for a numeric constraint formulation.
+
+Let me first start an ACL2 session and build the formalization. 
+
+Starting: *Write ACL2+SMTLink puzzle spec* (4/6)
+
+Ran `start_session` 
+Completed with input: {
+  "name": "forest-friends-puzzle"
+}
+
+Ran `evaluate` 
+Completed with input: {
+  "code": "(in-package \"ACL2\")",
+  "session_id": "cd6ed4fb-f2b3-4b1e-9f2e-6a6bd128ce2f"
+}
+
+Good. Now let me build up the definitions incrementally. I'll encode friends, activities, and times as integers 1–4 and prove properties. 
+
+Ran `evaluate` 
+Completed with input: {
+  "code": "\n;; ===================================================================\n;; Forest Friends Frenzy — Encoding\n;; ===================================================================\n;; Friends:    1=Pooh, 2=Piglet, 3=Tigger, 4=Eeyore\n;; Activities: 1=honey-tasting, 2=bouncing, 3=exploring, 4=gardening\n;; Times:      1=morning, 2=noon, 3=afternoon, 4=evening\n;;\n;; Variables: activity-X = activity for friend X\n;;            time-X     = time slot for friend X\n\n;; A valid slot is an integer 1..4\n(defun slot-p (x)\n  (and (integerp x) (<= 1 x) (<= x 4)))\n",
+  "session_id": "cd6ed4fb-f2b3-4b1e-9f2e-6a6bd128ce2f"
+}
+
+Ran `evaluate` 
+Completed with input: {
+  "code": "\n;; All-different predicate for exactly 4 values\n(defun all-diff-4 (a b c d)\n  (and (not (equal a b)) (not (equal a c)) (not (equal a d))\n       (not (equal b c)) (not (equal b d))\n       (not (equal c d))))\n",
+  "session_id": "cd6ed4fb-f2b3-4b1e-9f2e-6a6bd128ce2f"
+}
+
+Ran `evaluate` 
+Completed with input: {
+  "code": "\n;; The puzzle constraints\n;; Arguments: aP aI aT aE = activities for Pooh, Piglet, Tigger, Eeyore\n;;            tP tI tT tE = time slots for Pooh, Piglet, Tigger, Eeyore\n(defun puzzle-constraints (aP aI aT aE tP tI tT tE)\n  (and\n   ;; Domain: all values are slots 1..4\n   (slot-p aP) (slot-p aI) (slot-p aT) (slot-p aE)\n   (slot-p tP) (slot-p tI) (slot-p tT) (slot-p tE)\n   ;; Each friend has a different activity\n   (all-diff-4 aP aI aT aE)\n   ;; Each friend has a different time\n   (all-diff-4 tP tI tT tE)\n   ;; Clue 1: Tigger does his activity earlier than Eeyore\n   (< tT tE)\n   ;; Clue 2: Honey tasting (1) happens later than exploring (3)\n   ;; We need: time-of-honey-taster > time-of-explorer\n   ;; Find which friend does honey tasting and which does exploring\n   ;; This is encoded: for each friend, if they do activity 1 (honey),\n   ;; and another does activity 3 (exploring), honey-friend's time > explorer's time.\n   (implies (equal aP 1) (and (implies (equal aI 3) (> tP tI))\n                              (implies (equal aT 3) (> tP tT))\n                              (implies (equal aE 3) (> tP tE))))\n   (implies (equal aI 1) (and (implies (equal aP 3) (> tI tP))\n                              (implies (equal aT 3) (> tI tT))\n                              (implies (equal aE 3) (> tI tE))))\n   (implies (equal aT 1) (and (implies (equal aP 3) (> tT tP))\n                              (implies (equal aI 3) (> tT tI))\n                              (implies (equal aE 3) (> tT tE))))\n   (implies (equal aE 1) (and (implies (equal aP 3) (> tE tP))\n                              (implies (equal aI 3) (> tE tI))\n                              (implies (equal aT 3) (> tE tT))))\n   ;; Clue 3: Piglet does his activity in the morning (1)\n   (equal tI 1)\n   ;; Clue 4: Pooh does not like gardening (4)\n   (not (equal aP 4))))\n",
+  "session_id": "cd6ed4fb-f2b3-4b1e-9f2e-6a6bd128ce2f"
+}
+
+Good. Now let me verify the proposed solution satisfies constraints, and also prove that the puzzle is *under-constrained* (has multiple solutions). 
+
+Ran `evaluate` 
+Completed with input: {
+  "code": "\n;; ===================================================================\n;; THEOREM 1: The proposed solution IS valid\n;; ===================================================================\n;; Proposed: Pooh=bouncing(2)/afternoon(3), Piglet=gardening(4)/morning(1),\n;;           Tigger=exploring(3)/noon(2), Eeyore=honey-tasting(1)/evening(4)\n(defthm proposed-solution-valid\n  (puzzle-constraints 2 4 3 1  ; activities: Pooh=bouncing, Piglet=gardening, Tigger=exploring, Eeyore=honey\n                      3 1 2 4) ; times: Pooh=afternoon, Piglet=morning, Tigger=noon, Eeyore=evening\n  :rule-classes nil)\n",
+  "session_id": "cd6ed4fb-f2b3-4b1e-9f2e-6a6bd128ce2f"
+}
+
+The proposed solution is valid. Now let me prove there's at least one *other* valid solution — demonstrating non-uniqueness. 
+
+Ran `evaluate` 
+Completed with input: {
+  "code": "\n;; ===================================================================\n;; THEOREM 2: An ALTERNATIVE solution also satisfies the constraints\n;; ===================================================================\n;; Alternative (from Python solver solution 10):\n;; Pooh=exploring(3)/afternoon(3), Piglet=gardening(4)/morning(1),\n;; Tigger=bouncing(2)/noon(2), Eeyore=honey-tasting(1)/evening(4)\n(defthm alternative-solution-valid\n  (puzzle-constraints 3 4 2 1  ; activities\n                      3 1 2 4) ; times\n  :rule-classes nil)\n",
+  "session_id": "cd6ed4fb-f2b3-4b1e-9f2e-6a6bd128ce2f"
+}
+
+Now let me prove non-uniqueness: the two solutions differ, so the puzzle has more than one answer. 
+
+Ran `evaluate` 
+Completed with input: {
+  "code": "\n;; ===================================================================\n;; THEOREM 3: Non-uniqueness — these two solutions are distinct\n;; ===================================================================\n;; Solution A: Pooh=bouncing(2), Tigger=exploring(3)\n;; Solution B: Pooh=exploring(3), Tigger=bouncing(2)\n;; They differ in the activity assigned to Pooh.\n(defthm solutions-differ\n  (not (equal (list 2 4 3 1 3 1 2 4)    ; proposed solution\n              (list 3 4 2 1 3 1 2 4)))   ; alternative solution\n  :rule-classes nil)\n",
+  "session_id": "cd6ed4fb-f2b3-4b1e-9f2e-6a6bd128ce2f"
+}
+
+Now let me prove the specific reasoning flaw: the description claims "Tigger must do his activity at noon, and Eeyore does his in the afternoon." Let me show that Tigger=noon, Eeyore=evening is also valid (with Pooh at afternoon). 
+
+Ran `evaluate` 
+Completed with input: {
+  "code": "\n;; ===================================================================\n;; THEOREM 4: The description's reasoning step is WRONG\n;; ===================================================================\n;; The description claims:\n;;   \"Tigger must do his activity at noon, Eeyore in the afternoon\"\n;; But Tigger=noon, Eeyore=EVENING is also consistent:\n;; (Pooh fills the afternoon slot)\n;;\n;; This solution has Tigger at AFTERNOON, Eeyore at EVENING (different timing)\n;; Pooh=exploring(3)/noon(2), Piglet=gardening(4)/morning(1),\n;; Tigger=bouncing(2)/afternoon(3), Eeyore=honey-tasting(1)/evening(4)\n(defthm eeyore-not-forced-to-afternoon\n  (puzzle-constraints 3 4 2 1  ; Pooh=exploring, Piglet=gardening, Tigger=bouncing, Eeyore=honey\n                      2 1 3 4) ; Pooh=noon, Piglet=morning, Tigger=afternoon, Eeyore=evening\n  :rule-classes nil)\n",
+  "session_id": "cd6ed4fb-f2b3-4b1e-9f2e-6a6bd128ce2f"
+}
+
+Now let me also verify some *universal* properties — things that MUST hold for any valid solution. These are the sound deduction steps. 
+
+Ran `evaluate` 
+Completed with input: {
+  "code": "\n;; ===================================================================\n;; THEOREM 5: Piglet's time is ALWAYS morning (sound deduction)\n;; ===================================================================\n(defthm piglet-always-morning\n  (implies (puzzle-constraints aP aI aT aE tP tI tT tE)\n           (equal tI 1))\n  :rule-classes nil)\n",
+  "session_id": "cd6ed4fb-f2b3-4b1e-9f2e-6a6bd128ce2f"
+}
+
+Ran `evaluate` 
+Completed with input: {
+  "code": "\n;; ===================================================================\n;; THEOREM 6: Tigger always goes before Eeyore (sound deduction — just restating clue 1)\n;; ===================================================================\n(defthm tigger-before-eeyore\n  (implies (puzzle-constraints aP aI aT aE tP tI tT tE)\n           (< tT tE))\n  :rule-classes nil)\n",
+  "session_id": "cd6ed4fb-f2b3-4b1e-9f2e-6a6bd128ce2f"
+}
+
+Ran `evaluate` 
+Completed with input: {
+  "code": "\n;; ===================================================================\n;; THEOREM 7: Pooh never does gardening (sound deduction)\n;; ===================================================================\n(defthm pooh-never-gardening\n  (implies (puzzle-constraints aP aI aT aE tP tI tT tE)\n           (not (equal aP 4)))\n  :rule-classes nil)\n",
+  "session_id": "cd6ed4fb-f2b3-4b1e-9f2e-6a6bd128ce2f"
+}
+
+Now let me try the critical false claim from the description — that Tigger must be at noon and Eeyore at afternoon. ACL2 should *refuse* to prove this. 
+
+Ran `evaluate` 
+Completed with input: {
+  "code": "\n;; ===================================================================\n;; THEOREM 8 (EXPECTED TO FAIL): Description's false claim\n;; \"Tigger must be noon, Eeyore must be afternoon\"\n;; ===================================================================\n(defthm false-claim-tigger-noon-eeyore-afternoon\n  (implies (puzzle-constraints aP aI aT aE tP tI tT tE)\n           (and (equal tT 2) (equal tE 3)))\n  :rule-classes nil)\n",
+  "session_id": "cd6ed4fb-f2b3-4b1e-9f2e-6a6bd128ce2f",
+  "timeout": 15
+}
+
+ACL2 correctly *refuses* to prove the false claim. Now let me also try the claim that the solution is unique — this should also fail. 
+
+Ran `evaluate` 
+Completed with input: {
+  "code": "\n;; ===================================================================\n;; THEOREM 9 (EXPECTED TO FAIL): Uniqueness of the proposed solution\n;; If it were unique, then any valid solution must have Pooh=bouncing(2)\n;; ===================================================================\n(defthm false-uniqueness-pooh-bouncing\n  (implies (puzzle-constraints aP aI aT aE tP tI tT tE)\n           (equal aP 2))\n  :rule-classes nil)\n",
+  "session_id": "cd6ed4fb-f2b3-4b1e-9f2e-6a6bd128ce2f",
+  "timeout": 15
+}
+
+ACL2 correctly rejects the uniqueness claim too. Now let me add a 5th clue to make the puzzle uniquely solvable, and then prove uniqueness. Based on the Python analysis, the puzzle needs to pin down Pooh's time slot. 
+
+Ran `evaluate` 
+Completed with input: {
+  "code": "\n;; ===================================================================\n;; FIXED PUZZLE: Add Clue 5 to make it unique\n;; ===================================================================\n;; Clue 5: \"Winnie the Pooh performs his activity in the afternoon.\"\n;; This eliminates all ambiguity.\n(defun puzzle-constraints-fixed (aP aI aT aE tP tI tT tE)\n  (and (puzzle-constraints aP aI aT aE tP tI tT tE)\n       ;; Clue 5: Pooh does his activity in the afternoon (3)\n       (equal tP 3)))\n",
+  "session_id": "cd6ed4fb-f2b3-4b1e-9f2e-6a6bd128ce2f"
+}
+
+Ran `evaluate` 
+Completed with input: {
+  "code": "\n;; ===================================================================\n;; THEOREM 10: Fixed puzzle ⟹ unique solution\n;; ===================================================================\n;; We prove that any valid assignment must be exactly the proposed one.\n(defthm fixed-puzzle-unique-solution\n  (implies (puzzle-constraints-fixed aP aI aT aE tP tI tT tE)\n           (and (equal aP 2)  ; Pooh = bouncing\n                (equal aI 4)  ; Piglet = gardening\n                (equal aT 3)  ; Tigger = exploring\n                (equal aE 1)  ; Eeyore = honey tasting\n                (equal tP 3)  ; Pooh = afternoon\n                (equal tI 1)  ; Piglet = morning\n                (equal tT 2)  ; Tigger = noon\n                (equal tE 4))); Eeyore = evening\n  :rule-classes nil)\n",
+  "session_id": "cd6ed4fb-f2b3-4b1e-9f2e-6a6bd128ce2f",
+  "timeout": 60
+}
+
+Hmm, the Subgoal NIL means the prover expanded into a case that's actually false — my Clue 5 alone isn't sufficient. Let me check with the Python solver what the right fix is. 
+
+Ran terminal command:  /workspaces/acl2-swf-experiments/.venv/bin/python -c "
+from constraint import Problem, AllDifferentConstraint
+
+TIMES = {'morning': 1, 'noon': 2, 'afternoon': 3, 'evening': 4}
+ACTIVITIES = {'honey_tasting': 1, 'bouncing': 2, 'exploring': 3, 'gardening': 4}
+FRIENDS = ['pooh', 'piglet', 'tigger', 'eeyore']
+TIME_NAME = {v: k for k, v in TIMES.items()}
+ACTIVITY_NAME = {v: k for k, v in ACTIVITIES.items()}
+
+p = Problem()
+for f in FRIENDS:
+    p.addVariable(f'{f}_time', list(TIMES.values()))
+    p.addVariable(f'{f}_activity', list(ACTIVITIES.values()))
+p.addConstraint(AllDifferentConstraint(), [f'{f}_time' for f in FRIENDS])
+p.addConstraint(AllDifferentConstraint(), [f'{f}_activity' for f in FRIENDS])
+p.addConstraint(lambda t: t == 1, ['piglet_time'])
+p.addConstraint(lambda tt, et: tt < et, ['tigger_time', 'eeyore_time'])
+p.addConstraint(lambda a: a != 4, ['pooh_activity'])
+for f1 in FRIENDS:
+    for f2 in FRIENDS:
+        if f1 == f2: continue
+        p.addConstraint(
+            lambda a1, t1, a2, t2: (a1 != 1 or a2 != 3 or t1 > t2),
+            [f'{f1}_activity', f'{f1}_time', f'{f2}_activity', f'{f2}_time'])
+
+# Add: Pooh in afternoon
+p.addConstraint(lambda t: t == 3, ['pooh_time'])
+
+solutions = p.getSolutions()
+print(f'With Clue 5 (Pooh=afternoon): {len(solutions)} solutions')
+for i, sol in enumerate(solutions, 1):
+    acts = {f: ACTIVITY_NAME[sol[f'{f}_activity']] for f in FRIENDS}
+    times = {f: TIME_NAME[sol[f'{f}_time']] for f in FRIENDS}
+    print(f'  Sol {i}: ' + ', '.join(f'{f}={acts[f]}/{times[f]}' for f in FRIENDS))
+"
+
+
+Still 9 solutions. Pooh=afternoon only pins the times (Tigger=noon, Eeyore=evening), but activities remain free. I need a stronger fix. Let me try: "Bouncing happens in the afternoon." 
+
+Ran terminal command:  /workspaces/acl2-swf-experiments/.venv/bin/python -c "
+from constraint import Problem, AllDifferentConstraint
+
+TIMES = {'morning': 1, 'noon': 2, 'afternoon': 3, 'evening': 4}
+ACTIVITIES = {'honey_tasting': 1, 'bouncing': 2, 'exploring': 3, 'gardening': 4}
+FRIENDS = ['pooh', 'piglet', 'tigger', 'eeyore']
+TIME_NAME = {v: k for k, v in TIMES.items()}
+ACTIVITY_NAME = {v: k for k, v in ACTIVITIES.items()}
+
+p = Problem()
+for f in FRIENDS:
+    p.addVariable(f'{f}_time', list(TIMES.values()))
+    p.addVariable(f'{f}_activity', list(ACTIVITIES.values()))
+p.addConstraint(AllDifferentConstraint(), [f'{f}_time' for f in FRIENDS])
+p.addConstraint(AllDifferentConstraint(), [f'{f}_activity' for f in FRIENDS])
+p.addConstraint(lambda t: t == 1, ['piglet_time'])
+p.addConstraint(lambda tt, et: tt < et, ['tigger_time', 'eeyore_time'])
+p.addConstraint(lambda a: a != 4, ['pooh_activity'])
+for f1 in FRIENDS:
+    for f2 in FRIENDS:
+        if f1 == f2: continue
+        p.addConstraint(
+            lambda a1, t1, a2, t2: (a1 != 1 or a2 != 3 or t1 > t2),
+            [f'{f1}_activity', f'{f1}_time', f'{f2}_activity', f'{f2}_time'])
+
+# Try: 'Bouncing happens in the afternoon'
+for f in FRIENDS:
+    p.addConstraint(
+        lambda a, t: (a != 2 or t == 3),
+        [f'{f}_activity', f'{f}_time'])
+
+solutions = p.getSolutions()
+print(f'With Clue 5 (bouncing=afternoon): {len(solutions)} solutions')
+for i, sol in enumerate(solutions, 1):
+    acts = {f: ACTIVITY_NAME[sol[f'{f}_activity']] for f in FRIENDS}
+    times = {f: TIME_NAME[sol[f'{f}_time']] for f in FRIENDS}
+    print(f'  Sol {i}: ' + ', '.join(f'{f}={acts[f]}/{times[f]}' for f in FRIENDS))
+"
+
+
+Still not unique. Let me try something thematic: "Eeyore's activity is not bouncing" (Eeyore is too gloomy to bounce). 
+
+Ran terminal command:  /workspaces/acl2-swf-experiments/.venv/bin/python -c "
+from constraint import Problem, AllDifferentConstraint
+
+TIMES = {'morning': 1, 'noon': 2, 'afternoon': 3, 'evening': 4}
+ACTIVITIES = {'honey_tasting': 1, 'bouncing': 2, 'exploring': 3, 'gardening': 4}
+FRIENDS = ['pooh', 'piglet', 'tigger', 'eeyore']
+TIME_NAME = {v: k for k, v in TIMES.items()}
+ACTIVITY_NAME = {v: k for k, v in ACTIVITIES.items()}
+
+def solve_with_extras(*extras):
+    p = Problem()
+    for f in FRIENDS:
+        p.addVariable(f'{f}_time', list(TIMES.values()))
+        p.addVariable(f'{f}_activity', list(ACTIVITIES.values()))
+    p.addConstraint(AllDifferentConstraint(), [f'{f}_time' for f in FRIENDS])
+    p.addConstraint(AllDifferentConstraint(), [f'{f}_activity' for f in FRIENDS])
+    p.addConstraint(lambda t: t == 1, ['piglet_time'])
+    p.addConstraint(lambda tt, et: tt < et, ['tigger_time', 'eeyore_time'])
+    p.addConstraint(lambda a: a != 4, ['pooh_activity'])
+    for f1 in FRIENDS:
+        for f2 in FRIENDS:
+            if f1 == f2: continue
+            p.addConstraint(
+                lambda a1, t1, a2, t2: (a1 != 1 or a2 != 3 or t1 > t2),
+                [f'{f1}_activity', f'{f1}_time', f'{f2}_activity', f'{f2}_time'])
+    for constraint_fn, vars in extras:
+        p.addConstraint(constraint_fn, vars)
+    return p.getSolutions()
+
+# Candidate Clue 5: 'Eeyore does not enjoy bouncing'
+sols = solve_with_extras((lambda a: a != 2, ['eeyore_activity']))
+print(f'5a: Eeyore != bouncing => {len(sols)} solutions')
+
+# Candidate Clue 5: 'Tigger loves bouncing'
+sols = solve_with_extras((lambda a: a == 2, ['tigger_activity']))
+print(f'5b: Tigger=bouncing => {len(sols)} solutions')
+
+# Candidate Clue 5: 'Eeyore does his activity in the evening'
+sols = solve_with_extras((lambda t: t == 4, ['eeyore_time']))
+print(f'5c: Eeyore=evening => {len(sols)} solutions')
+
+# Combined: Eeyore=evening + Eeyore != bouncing
+sols = solve_with_extras(
+    (lambda t: t == 4, ['eeyore_time']),
+    (lambda a: a != 2, ['eeyore_activity'])
+)
+print(f'5d: Eeyore=evening & != bouncing => {len(sols)} solutions')
+
+# Candidate: 'Piglet enjoys gardening'
+sols = solve_with_extras((lambda a: a == 4, ['piglet_activity']))
+print(f'5e: Piglet=gardening => {len(sols)} solutions')
+
+# Candidates: Piglet=gardening + Pooh=afternoon
+sols = solve_with_extras(
+    (lambda a: a == 4, ['piglet_activity']),
+    (lambda t: t == 3, ['pooh_time'])
+)
+print(f'5f: Piglet=gardening & Pooh=afternoon => {len(sols)} solutions')
+for sol in sols:
+    acts = {f: ACTIVITY_NAME[sol[f'{f}_activity']] for f in FRIENDS}
+    times = {f: TIME_NAME[sol[f'{f}_time']] for f in FRIENDS}
+    print(f'     ' + ', '.join(f'{f}={acts[f]}/{times[f]}' for f in FRIENDS))
+"
+
+
+Still 3 solutions with Piglet=gardening + Pooh=afternoon. Let me try a single clean extra clue that works. 
+
+Continue to iterate?
+[object Object]
+
+User: @agent Continue: "Continue to iterate?"
+
+GitHub Copilot: Ran terminal command:  /workspaces/acl2-swf-experiments/.venv/bin/python -c "
+from constraint import Problem, AllDifferentConstraint
+
+TIMES = {'morning': 1, 'noon': 2, 'afternoon': 3, 'evening': 4}
+ACTIVITIES = {'honey_tasting': 1, 'bouncing': 2, 'exploring': 3, 'gardening': 4}
+FRIENDS = ['pooh', 'piglet', 'tigger', 'eeyore']
+TIME_NAME = {v: k for k, v in TIMES.items()}
+ACTIVITY_NAME = {v: k for k, v in ACTIVITIES.items()}
+
+def solve_with_extras(*extras):
+    p = Problem()
+    for f in FRIENDS:
+        p.addVariable(f'{f}_time', list(TIMES.values()))
+        p.addVariable(f'{f}_activity', list(ACTIVITIES.values()))
+    p.addConstraint(AllDifferentConstraint(), [f'{f}_time' for f in FRIENDS])
+    p.addConstraint(AllDifferentConstraint(), [f'{f}_activity' for f in FRIENDS])
+    p.addConstraint(lambda t: t == 1, ['piglet_time'])
+    p.addConstraint(lambda tt, et: tt < et, ['tigger_time', 'eeyore_time'])
+    p.addConstraint(lambda a: a != 4, ['pooh_activity'])
+    for f1 in FRIENDS:
+        for f2 in FRIENDS:
+            if f1 == f2: continue
+            p.addConstraint(
+                lambda a1, t1, a2, t2: (a1 != 1 or a2 != 3 or t1 > t2),
+                [f'{f1}_activity', f'{f1}_time', f'{f2}_activity', f'{f2}_time'])
+    for constraint_fn, vars in extras:
+        p.addConstraint(constraint_fn, vars)
+    return p.getSolutions()
+
+# Try: 'Tigger does not enjoy honey tasting' (he's too bouncy for patient honey tasting)
+sols = solve_with_extras((lambda a: a != 1, ['tigger_activity']))
+print(f'5g: Tigger != honey tasting => {len(sols)} solutions')
+
+# Try: 'The friend who bounces does so in the afternoon'  
+# (bouncing activity => afternoon time)
+sols = solve_with_extras(*[
+    (lambda a, t: a != 2 or t == 3, [f'{f}_activity', f'{f}_time'])
+    for f in FRIENDS
+])
+print(f'5h: bouncing => afternoon => {len(sols)} solutions')
+
+# Try: Piglet=gardening + Tigger != honey
+sols = solve_with_extras(
+    (lambda a: a == 4, ['piglet_activity']),
+    (lambda a: a != 1, ['tigger_activity'])
+)
+print(f'5i: Piglet=gardening & Tigger != honey => {len(sols)} solutions')
+for sol in sols:
+    acts = {f: ACTIVITY_NAME[sol[f'{f}_activity']] for f in FRIENDS}
+    times = {f: TIME_NAME[sol[f'{f}_time']] for f in FRIENDS}
+    print(f'     ' + ', '.join(f'{f}={acts[f]}/{times[f]}' for f in FRIENDS))
+
+# Try a single thematic clue: 'Eeyore does not enjoy exploring' (too depressed)
+sols = solve_with_extras((lambda a: a != 3, ['eeyore_activity']))
+print(f'5j: Eeyore != exploring => {len(sols)} solutions')
+
+# Single: Tigger != honey + Eeyore != exploring
+sols = solve_with_extras(
+    (lambda a: a != 1, ['tigger_activity']),
+    (lambda a: a != 3, ['eeyore_activity'])
+)
+print(f'5k: Tigger != honey & Eeyore != exploring => {len(sols)} solutions')
+for sol in sols:
+    acts = {f: ACTIVITY_NAME[sol[f'{f}_activity']] for f in FRIENDS}
+    times = {f: TIME_NAME[sol[f'{f}_time']] for f in FRIENDS}
+    print(f'     ' + ', '.join(f'{f}={acts[f]}/{times[f]}' for f in FRIENDS))
+"
+
+
+Let me take a different approach — find the *minimal* set of extra clues that yields uniqueness while being thematic. 
+
+Ran terminal command:  /workspaces/acl2-swf-experiments/.venv/bin/python -c "
+from constraint import Problem, AllDifferentConstraint
+
+TIMES = {'morning': 1, 'noon': 2, 'afternoon': 3, 'evening': 4}
+ACTIVITIES = {'honey_tasting': 1, 'bouncing': 2, 'exploring': 3, 'gardening': 4}
+FRIENDS = ['pooh', 'piglet', 'tigger', 'eeyore']
+
+def solve_with_extras(*extras):
+    p = Problem()
+    for f in FRIENDS:
+        p.addVariable(f'{f}_time', list(TIMES.values()))
+        p.addVariable(f'{f}_activity', list(ACTIVITIES.values()))
+    p.addConstraint(AllDifferentConstraint(), [f'{f}_time' for f in FRIENDS])
+    p.addConstraint(AllDifferentConstraint(), [f'{f}_activity' for f in FRIENDS])
+    p.addConstraint(lambda t: t == 1, ['piglet_time'])
+    p.addConstraint(lambda tt, et: tt < et, ['tigger_time', 'eeyore_time'])
+    p.addConstraint(lambda a: a != 4, ['pooh_activity'])
+    for f1 in FRIENDS:
+        for f2 in FRIENDS:
+            if f1 == f2: continue
+            p.addConstraint(
+                lambda a1, t1, a2, t2: (a1 != 1 or a2 != 3 or t1 > t2),
+                [f'{f1}_activity', f'{f1}_time', f'{f2}_activity', f'{f2}_time'])
+    for constraint_fn, vars in extras:
+        p.addConstraint(constraint_fn, vars)
+    return p.getSolutions()
+
+# Clue 5: 'The bouncing friend performs right after exploring' (exploring+1 = bouncing)
+# i.e. the explorer's time + 1 = the bouncer's time
+sols = solve_with_extras(*[
+    (lambda a1, t1, a2, t2: (a1 != 2 or a2 != 3 or t1 == t2 + 1),
+     [f'{f1}_activity', f'{f1}_time', f'{f2}_activity', f'{f2}_time'])
+    for f1 in FRIENDS for f2 in FRIENDS if f1 != f2
+])
+print(f'5L: bouncing right after exploring => {len(sols)} solutions')
+
+# Clue 5: 'Winnie the Pooh does not explore' + 'Eeyore is not a bouncer'
+sols = solve_with_extras(
+    (lambda a: a != 3, ['pooh_activity']),
+    (lambda a: a != 2, ['eeyore_activity'])
+)
+print(f'5m: Pooh!=exploring & Eeyore!=bouncing => {len(sols)} solutions')
+
+# Clue 5: 'Pooh does his activity later than Tigger'
+sols = solve_with_extras((lambda tp, tt: tp > tt, ['pooh_time', 'tigger_time']))
+print(f'5n: Pooh after Tigger => {len(sols)} solutions')
+
+# Clue 5+6: Pooh after Tigger + Eeyore != bouncing
+sols = solve_with_extras(
+    (lambda tp, tt: tp > tt, ['pooh_time', 'tigger_time']),
+    (lambda a: a != 2, ['eeyore_activity'])
+)
+print(f'5o: Pooh after Tigger & Eeyore != bouncing => {len(sols)} solutions')
+
+# Clue 5: Pooh loves bouncing
+sols = solve_with_extras((lambda a: a == 2, ['pooh_activity']))
+print(f'5p: Pooh=bouncing => {len(sols)} solutions')
+
+# Clue 5+6: Pooh=bouncing + Pooh=afternoon
+sols = solve_with_extras(
+    (lambda a: a == 2, ['pooh_activity']),
+    (lambda t: t == 3, ['pooh_time'])
+)
+print(f'5q: Pooh=bouncing & Pooh=afternoon => {len(sols)} solutions')
+"
+
+
+Ran terminal command:  /workspaces/acl2-swf-experiments/.venv/bin/python -c "
+from constraint import Problem, AllDifferentConstraint
+
+TIMES = {'morning': 1, 'noon': 2, 'afternoon': 3, 'evening': 4}
+ACTIVITIES = {'honey_tasting': 1, 'bouncing': 2, 'exploring': 3, 'gardening': 4}
+FRIENDS = ['pooh', 'piglet', 'tigger', 'eeyore']
+TIME_NAME = {v: k for k, v in TIMES.items()}
+ACTIVITY_NAME = {v: k for k, v in ACTIVITIES.items()}
+
+def solve_with_extras(*extras):
+    p = Problem()
+    for f in FRIENDS:
+        p.addVariable(f'{f}_time', list(TIMES.values()))
+        p.addVariable(f'{f}_activity', list(ACTIVITIES.values()))
+    p.addConstraint(AllDifferentConstraint(), [f'{f}_time' for f in FRIENDS])
+    p.addConstraint(AllDifferentConstraint(), [f'{f}_activity' for f in FRIENDS])
+    p.addConstraint(lambda t: t == 1, ['piglet_time'])
+    p.addConstraint(lambda tt, et: tt < et, ['tigger_time', 'eeyore_time'])
+    p.addConstraint(lambda a: a != 4, ['pooh_activity'])
+    for f1 in FRIENDS:
+        for f2 in FRIENDS:
+            if f1 == f2: continue
+            p.addConstraint(
+                lambda a1, t1, a2, t2: (a1 != 1 or a2 != 3 or t1 > t2),
+                [f'{f1}_activity', f'{f1}_time', f'{f2}_activity', f'{f2}_time'])
+    for constraint_fn, vars in extras:
+        p.addConstraint(constraint_fn, vars)
+    return p.getSolutions()
+
+# Best candidates with TWO thematic clues:
+# 5: 'Pooh loves bouncing'  6: 'Tigger does not enjoy honey tasting'
+sols = solve_with_extras(
+    (lambda a: a == 2, ['pooh_activity']),
+    (lambda a: a != 1, ['tigger_activity'])
+)
+print(f'5+6: Pooh=bouncing & Tigger!=honey => {len(sols)} solutions')
+for sol in sols:
+    acts = {f: ACTIVITY_NAME[sol[f'{f}_activity']] for f in FRIENDS}
+    times = {f: TIME_NAME[sol[f'{f}_time']] for f in FRIENDS}
+    print(f'     ' + ', '.join(f'{f}={acts[f]}/{times[f]}' for f in FRIENDS))
+
+# 5: Pooh=bouncing  6: Eeyore=honey
+sols = solve_with_extras(
+    (lambda a: a == 2, ['pooh_activity']),
+    (lambda a: a == 1, ['eeyore_activity'])
+)
+print(f'5+6: Pooh=bouncing & Eeyore=honey => {len(sols)} solutions')
+for sol in sols:
+    acts = {f: ACTIVITY_NAME[sol[f'{f}_activity']] for f in FRIENDS}
+    times = {f: TIME_NAME[sol[f'{f}_time']] for f in FRIENDS}
+    print(f'     ' + ', '.join(f'{f}={acts[f]}/{times[f]}' for f in FRIENDS))
+"
+
+
+I need three additional clues. Let me find the right combo: 
+
+Ran terminal command:  /workspaces/acl2-swf-experiments/.venv/bin/python -c "
+from constraint import Problem, AllDifferentConstraint
+
+TIMES = {'morning': 1, 'noon': 2, 'afternoon': 3, 'evening': 4}
+ACTIVITIES = {'honey_tasting': 1, 'bouncing': 2, 'exploring': 3, 'gardening': 4}
+FRIENDS = ['pooh', 'piglet', 'tigger', 'eeyore']
+TIME_NAME = {v: k for k, v in TIMES.items()}
+ACTIVITY_NAME = {v: k for k, v in ACTIVITIES.items()}
+
+def solve_with_extras(*extras):
+    p = Problem()
+    for f in FRIENDS:
+        p.addVariable(f'{f}_time', list(TIMES.values()))
+        p.addVariable(f'{f}_activity', list(ACTIVITIES.values()))
+    p.addConstraint(AllDifferentConstraint(), [f'{f}_time' for f in FRIENDS])
+    p.addConstraint(AllDifferentConstraint(), [f'{f}_activity' for f in FRIENDS])
+    p.addConstraint(lambda t: t == 1, ['piglet_time'])
+    p.addConstraint(lambda tt, et: tt < et, ['tigger_time', 'eeyore_time'])
+    p.addConstraint(lambda a: a != 4, ['pooh_activity'])
+    for f1 in FRIENDS:
+        for f2 in FRIENDS:
+            if f1 == f2: continue
+            p.addConstraint(
+                lambda a1, t1, a2, t2: (a1 != 1 or a2 != 3 or t1 > t2),
+                [f'{f1}_activity', f'{f1}_time', f'{f2}_activity', f'{f2}_time'])
+    for constraint_fn, vars in extras:
+        p.addConstraint(constraint_fn, vars)
+    return p.getSolutions()
+
+# Try: 5='Tigger enjoys exploring' (very thematic - Tigger is adventurous)
+sols = solve_with_extras((lambda a: a == 3, ['tigger_activity']))
+print(f'5r: Tigger=exploring => {len(sols)} solutions')
+for sol in sols:
+    acts = {f: ACTIVITY_NAME[sol[f'{f}_activity']] for f in FRIENDS}
+    times = {f: TIME_NAME[sol[f'{f}_time']] for f in FRIENDS}
+    print(f'     ' + ', '.join(f'{f}={acts[f]}/{times[f]}' for f in FRIENDS))
+"
+
+
+Ran terminal command:  /workspaces/acl2-swf-experiments/.venv/bin/python -c "
+from constraint import Problem, AllDifferentConstraint
+
+TIMES = {'morning': 1, 'noon': 2, 'afternoon': 3, 'evening': 4}
+ACTIVITIES = {'honey_tasting': 1, 'bouncing': 2, 'exploring': 3, 'gardening': 4}
+FRIENDS = ['pooh', 'piglet', 'tigger', 'eeyore']
+TIME_NAME = {v: k for k, v in TIMES.items()}
+ACTIVITY_NAME = {v: k for k, v in ACTIVITIES.items()}
+
+def solve_with_extras(*extras):
+    p = Problem()
+    for f in FRIENDS:
+        p.addVariable(f'{f}_time', list(TIMES.values()))
+        p.addVariable(f'{f}_activity', list(ACTIVITIES.values()))
+    p.addConstraint(AllDifferentConstraint(), [f'{f}_time' for f in FRIENDS])
+    p.addConstraint(AllDifferentConstraint(), [f'{f}_activity' for f in FRIENDS])
+    p.addConstraint(lambda t: t == 1, ['piglet_time'])
+    p.addConstraint(lambda tt, et: tt < et, ['tigger_time', 'eeyore_time'])
+    p.addConstraint(lambda a: a != 4, ['pooh_activity'])
+    for f1 in FRIENDS:
+        for f2 in FRIENDS:
+            if f1 == f2: continue
+            p.addConstraint(
+                lambda a1, t1, a2, t2: (a1 != 1 or a2 != 3 or t1 > t2),
+                [f'{f1}_activity', f'{f1}_time', f'{f2}_activity', f'{f2}_time'])
+    for constraint_fn, vars in extras:
+        p.addConstraint(constraint_fn, vars)
+    return p.getSolutions()
+
+# 5='Tigger enjoys exploring'  6='Eeyore does his activity in the evening'
+sols = solve_with_extras(
+    (lambda a: a == 3, ['tigger_activity']),
+    (lambda t: t == 4, ['eeyore_time'])
+)
+print(f'5+6: Tigger=exploring & Eeyore=evening => {len(sols)} solutions')
+for sol in sols:
+    acts = {f: ACTIVITY_NAME[sol[f'{f}_activity']] for f in FRIENDS}
+    times = {f: TIME_NAME[sol[f'{f}_time']] for f in FRIENDS}
+    print(f'     ' + ', '.join(f'{f}={acts[f]}/{times[f]}' for f in FRIENDS))
+"
+
+
+4 solutions. Still need more. Let me go for it — the cleanest approach is to replace the original 4 clues with a better set. Let me design 5 clues that give a unique solution and are each independently deducible: 
+
+Ran terminal command:  /workspaces/acl2-swf-experiments/.venv/bin/python -c "
+from constraint import Problem, AllDifferentConstraint
+
+TIMES = {'morning': 1, 'noon': 2, 'afternoon': 3, 'evening': 4}
+ACTIVITIES = {'honey_tasting': 1, 'bouncing': 2, 'exploring': 3, 'gardening': 4}
+FRIENDS = ['pooh', 'piglet', 'tigger', 'eeyore']
+TIME_NAME = {v: k for k, v in TIMES.items()}
+ACTIVITY_NAME = {v: k for k, v in ACTIVITIES.items()}
+
+def solve_with_extras(*extras):
+    p = Problem()
+    for f in FRIENDS:
+        p.addVariable(f'{f}_time', list(TIMES.values()))
+        p.addVariable(f'{f}_activity', list(ACTIVITIES.values()))
+    p.addConstraint(AllDifferentConstraint(), [f'{f}_time' for f in FRIENDS])
+    p.addConstraint(AllDifferentConstraint(), [f'{f}_activity' for f in FRIENDS])
+    p.addConstraint(lambda t: t == 1, ['piglet_time'])
+    p.addConstraint(lambda tt, et: tt < et, ['tigger_time', 'eeyore_time'])
+    p.addConstraint(lambda a: a != 4, ['pooh_activity'])
+    for f1 in FRIENDS:
+        for f2 in FRIENDS:
+            if f1 == f2: continue
+            p.addConstraint(
+                lambda a1, t1, a2, t2: (a1 != 1 or a2 != 3 or t1 > t2),
+                [f'{f1}_activity', f'{f1}_time', f'{f2}_activity', f'{f2}_time'])
+    for constraint_fn, vars in extras:
+        p.addConstraint(constraint_fn, vars)
+    return p.getSolutions()
+
+# FINAL DESIGN: keep original 4 clues, add TWO thematic ones:
+# Clue 5: 'Tigger's favorite activity is exploring' (he's the adventurous one)
+# Clue 6: 'The friend who does gardening performs earlier than the friend who bounces'
+sols = solve_with_extras(
+    (lambda a: a == 3, ['tigger_activity']),
+    *[(lambda a1, t1, a2, t2: (a1 != 4 or a2 != 2 or t1 < t2),
+       [f'{f1}_activity', f'{f1}_time', f'{f2}_activity', f'{f2}_time'])
+      for f1 in FRIENDS for f2 in FRIENDS if f1 != f2]
+)
+print(f'Final: +Tigger=exploring + gardening<bouncing => {len(sols)} solutions')
+for sol in sols:
+    acts = {f: ACTIVITY_NAME[sol[f'{f}_activity']] for f in FRIENDS}
+    times = {f: TIME_NAME[sol[f'{f}_time']] for f in FRIENDS}
+    print(f'     ' + ', '.join(f'{f}={acts[f]}/{times[f]}' for f in FRIENDS))
+"
+
+
+Still 5. Let me just try replacing the original clue 2 with something more constraining while keeping the original spirit: 
+
+Ran terminal command:  /workspaces/acl2-swf-experiments/.venv/bin/python -c "
+from constraint import Problem, AllDifferentConstraint
+
+TIMES = {'morning': 1, 'noon': 2, 'afternoon': 3, 'evening': 4}
+ACTIVITIES = {'honey_tasting': 1, 'bouncing': 2, 'exploring': 3, 'gardening': 4}
+FRIENDS = ['pooh', 'piglet', 'tigger', 'eeyore']
+TIME_NAME = {v: k for k, v in TIMES.items()}
+ACTIVITY_NAME = {v: k for k, v in ACTIVITIES.items()}
+
+def solve_with(*constraint_fns):
+    p = Problem()
+    for f in FRIENDS:
+        p.addVariable(f'{f}_time', list(TIMES.values()))
+        p.addVariable(f'{f}_activity', list(ACTIVITIES.values()))
+    p.addConstraint(AllDifferentConstraint(), [f'{f}_time' for f in FRIENDS])
+    p.addConstraint(AllDifferentConstraint(), [f'{f}_activity' for f in FRIENDS])
+    for fn, vs in constraint_fns:
+        p.addConstraint(fn, vs)
+    return p.getSolutions()
+
+# Completely redesigned 6-clue puzzle targeting the SAME solution:
+# Pooh=bouncing/afternoon, Piglet=gardening/morning, 
+# Tigger=exploring/noon, Eeyore=honey_tasting/evening
+#
+# 1. Piglet performs his activity in the morning.
+# 2. Tigger does his activity earlier than Eeyore.
+# 3. Pooh does not like gardening.
+# 4. Honey tasting happens later than exploring.
+# 5. Tigger's favorite activity is exploring.
+# 6. Pooh performs his activity in the afternoon.
+
+constraints = [
+    (lambda t: t == 1, ['piglet_time']),                     # Clue 1
+    (lambda tt, et: tt < et, ['tigger_time', 'eeyore_time']),# Clue 2
+    (lambda a: a != 4, ['pooh_activity']),                   # Clue 3
+    # Clue 4: honey tasting later than exploring
+    *[(lambda a1, t1, a2, t2: (a1 != 1 or a2 != 3 or t1 > t2),
+       [f'{f1}_activity', f'{f1}_time', f'{f2}_activity', f'{f2}_time'])
+      for f1 in FRIENDS for f2 in FRIENDS if f1 != f2],
+    (lambda a: a == 3, ['tigger_activity']),                 # Clue 5
+    (lambda t: t == 3, ['pooh_time']),                       # Clue 6
+]
+
+sols = solve_with(*constraints)
+print(f'6-clue puzzle: {len(sols)} solutions')
+for sol in sols:
+    acts = {f: ACTIVITY_NAME[sol[f'{f}_activity']] for f in FRIENDS}
+    times = {f: TIME_NAME[sol[f'{f}_time']] for f in FRIENDS}
+    print(f'     ' + ', '.join(f'{f}={acts[f]}/{times[f]}' for f in FRIENDS))
+"
+
+
+3 solutions. Two have Pooh=honey_tasting. Since we know "Pooh doesn't do gardening", we could add "Pooh doesn't do honey tasting" too — but that's a bit heavy-handed. Let me try one elegant extra clue: 
+
+Ran terminal command:  /workspaces/acl2-swf-experiments/.venv/bin/python -c "
+from constraint import Problem, AllDifferentConstraint
+
+TIMES = {'morning': 1, 'noon': 2, 'afternoon': 3, 'evening': 4}
+ACTIVITIES = {'honey_tasting': 1, 'bouncing': 2, 'exploring': 3, 'gardening': 4}
+FRIENDS = ['pooh', 'piglet', 'tigger', 'eeyore']
+TIME_NAME = {v: k for k, v in TIMES.items()}
+ACTIVITY_NAME = {v: k for k, v in ACTIVITIES.items()}
+
+def solve_with(*constraint_fns):
+    p = Problem()
+    for f in FRIENDS:
+        p.addVariable(f'{f}_time', list(TIMES.values()))
+        p.addVariable(f'{f}_activity', list(ACTIVITIES.values()))
+    p.addConstraint(AllDifferentConstraint(), [f'{f}_time' for f in FRIENDS])
+    p.addConstraint(AllDifferentConstraint(), [f'{f}_activity' for f in FRIENDS])
+    for fn, vs in constraint_fns:
+        p.addConstraint(fn, vs)
+    return p.getSolutions()
+
+# 6-clue puzzle with Piglet=gardening explicitly:
+# 1. Piglet performs his activity in the morning.
+# 2. Tigger does his activity earlier than Eeyore.  
+# 3. Pooh does not like gardening.
+# 4. Honey tasting happens later than exploring.
+# 5. Tigger's favorite activity is exploring.
+# 6. Piglet's favorite activity is gardening.
+
+constraints = [
+    (lambda t: t == 1, ['piglet_time']),
+    (lambda tt, et: tt < et, ['tigger_time', 'eeyore_time']),
+    (lambda a: a != 4, ['pooh_activity']),
+    *[(lambda a1, t1, a2, t2: (a1 != 1 or a2 != 3 or t1 > t2),
+       [f'{f1}_activity', f'{f1}_time', f'{f2}_activity', f'{f2}_time'])
+      for f1 in FRIENDS for f2 in FRIENDS if f1 != f2],
+    (lambda a: a == 3, ['tigger_activity']),
+    (lambda a: a == 4, ['piglet_activity']),
+]
+
+sols = solve_with(*constraints)
+print(f'With Piglet=gardening + Tigger=exploring: {len(sols)} solutions')
+for sol in sols:
+    acts = {f: ACTIVITY_NAME[sol[f'{f}_activity']] for f in FRIENDS}
+    times = {f: TIME_NAME[sol[f'{f}_time']] for f in FRIENDS}
+    print(f'     ' + ', '.join(f'{f}={acts[f]}/{times[f]}' for f in FRIENDS))
+
+# Now try: 
+# 1. Piglet does his activity in the morning.
+# 2. Tigger does his earlier than Eeyore.
+# 3. Pooh does NOT like gardening or honey tasting.  
+# 4. Honey tasting happens later than exploring.
+# 5. Tigger's favorite activity is exploring.
+print()
+constraints2 = [
+    (lambda t: t == 1, ['piglet_time']),
+    (lambda tt, et: tt < et, ['tigger_time', 'eeyore_time']),
+    (lambda a: a != 4 and a != 1, ['pooh_activity']),  # not gardening or honey
+    *[(lambda a1, t1, a2, t2: (a1 != 1 or a2 != 3 or t1 > t2),
+       [f'{f1}_activity', f'{f1}_time', f'{f2}_activity', f'{f2}_time'])
+      for f1 in FRIENDS for f2 in FRIENDS if f1 != f2],
+    (lambda a: a == 3, ['tigger_activity']),
+]
+sols2 = solve_with(*constraints2)
+print(f'Pooh != gardening|honey + Tigger=exploring: {len(sols2)} solutions')
+for sol in sols2:
+    acts = {f: ACTIVITY_NAME[sol[f'{f}_activity']] for f in FRIENDS}
+    times = {f: TIME_NAME[sol[f'{f}_time']] for f in FRIENDS}
+    print(f'     ' + ', '.join(f'{f}={acts[f]}/{times[f]}' for f in FRIENDS))
+"
+
+
+3 solutions still — Pooh's time is free. The issue is the time ordering constraints alone don't pin Pooh. Let me add "Pooh does his activity later than Tigger" which is thematic (Pooh is slow): 
+
+Ran terminal command:  /workspaces/acl2-swf-experiments/.venv/bin/python -c "
+from constraint import Problem, AllDifferentConstraint
+
+TIMES = {'morning': 1, 'noon': 2, 'afternoon': 3, 'evening': 4}
+ACTIVITIES = {'honey_tasting': 1, 'bouncing': 2, 'exploring': 3, 'gardening': 4}
+FRIENDS = ['pooh', 'piglet', 'tigger', 'eeyore']
+TIME_NAME = {v: k for k, v in TIMES.items()}
+ACTIVITY_NAME = {v: k for k, v in ACTIVITIES.items()}
+
+def solve_with(*constraint_fns):
+    p = Problem()
+    for f in FRIENDS:
+        p.addVariable(f'{f}_time', list(TIMES.values()))
+        p.addVariable(f'{f}_activity', list(ACTIVITIES.values()))
+    p.addConstraint(AllDifferentConstraint(), [f'{f}_time' for f in FRIENDS])
+    p.addConstraint(AllDifferentConstraint(), [f'{f}_activity' for f in FRIENDS])
+    for fn, vs in constraint_fns:
+        p.addConstraint(fn, vs)
+    return p.getSolutions()
+
+# FINAL 6-clue puzzle:
+# 1. Piglet performs his activity in the morning.
+# 2. Tigger does his activity earlier than Eeyore.
+# 3. Pooh does not like gardening or honey tasting.
+# 4. Honey tasting happens later than exploring.
+# 5. Tigger's favorite activity is exploring.
+# 6. Pooh does his activity later than Tigger but earlier than Eeyore.
+constraints = [
+    (lambda t: t == 1, ['piglet_time']),
+    (lambda tt, et: tt < et, ['tigger_time', 'eeyore_time']),
+    (lambda a: a != 4 and a != 1, ['pooh_activity']),
+    *[(lambda a1, t1, a2, t2: (a1 != 1 or a2 != 3 or t1 > t2),
+       [f'{f1}_activity', f'{f1}_time', f'{f2}_activity', f'{f2}_time'])
+      for f1 in FRIENDS for f2 in FRIENDS if f1 != f2],
+    (lambda a: a == 3, ['tigger_activity']),
+    (lambda tp, tt, te: tp > tt and tp < te, ['pooh_time', 'tigger_time', 'eeyore_time']),
+]
+sols = solve_with(*constraints)
+print(f'6-clue final: {len(sols)} solutions')
+for sol in sols:
+    acts = {f: ACTIVITY_NAME[sol[f'{f}_activity']] for f in FRIENDS}
+    times = {f: TIME_NAME[sol[f'{f}_time']] for f in FRIENDS}
+    print(f'     ' + ', '.join(f'{f}={acts[f]}/{times[f]}' for f in FRIENDS))
+"
+
+
+**1 solution!** Now let me verify this is the intended one and build the ACL2 formalization. Let me write the complete, verified ACL2 book. 
+
+Ran `save_checkpoint` 
+Completed with input: {
+  "session_id": "cd6ed4fb-f2b3-4b1e-9f2e-6a6bd128ce2f",
+  "checkpoint_name": "original-clues-verified"
+}
+
+Now let me define the fixed puzzle in the session and prove uniqueness: 
+
+Ran `evaluate` 
+Completed with input: {
+  "code": "\n;; ===================================================================\n;; FIXED PUZZLE v2: 6 clues that yield a UNIQUE solution\n;; ===================================================================\n;; Clue 1: Piglet performs his activity in the morning.\n;; Clue 2: Tigger does his activity earlier than Eeyore.\n;; Clue 3: Pooh does not like gardening or honey tasting.\n;; Clue 4: Honey tasting happens later than exploring.\n;; Clue 5: Tigger's favorite activity is exploring.\n;; Clue 6: Pooh does his activity later than Tigger but earlier than Eeyore.\n\n(defun puzzle-v2 (aP aI aT aE tP tI tT tE)\n  (and\n   ;; Domain\n   (slot-p aP) (slot-p aI) (slot-p aT) (slot-p aE)\n   (slot-p tP) (slot-p tI) (slot-p tT) (slot-p tE)\n   ;; All-different\n   (all-diff-4 aP aI aT aE)\n   (all-diff-4 tP tI tT tE)\n   ;; Clue 1: Piglet = morning\n   (equal tI 1)\n   ;; Clue 2: Tigger < Eeyore\n   (< tT tE)\n   ;; Clue 3: Pooh ≠ gardening(4) AND Pooh ≠ honey-tasting(1)\n   (not (equal aP 4))\n   (not (equal aP 1))\n   ;; Clue 4: honey-tasting(1) later than exploring(3)\n   (implies (equal aP 1) (and (implies (equal aI 3) (> tP tI))\n                              (implies (equal aT 3) (> tP tT))\n                              (implies (equal aE 3) (> tP tE))))\n   (implies (equal aI 1) (and (implies (equal aP 3) (> tI tP))\n                              (implies (equal aT 3) (> tI tT))\n                              (implies (equal aE 3) (> tI tE))))\n   (implies (equal aT 1) (and (implies (equal aP 3) (> tT tP))\n                              (implies (equal aI 3) (> tT tI))\n                              (implies (equal aE 3) (> tT tE))))\n   (implies (equal aE 1) (and (implies (equal aP 3) (> tE tP))\n                              (implies (equal aI 3) (> tE tI))\n                              (implies (equal aT 3) (> tE tT))))\n   ;; Clue 5: Tigger = exploring(3)\n   (equal aT 3)\n   ;; Clue 6: Tigger < Pooh < Eeyore\n   (< tT tP)\n   (< tP tE)))\n",
+  "session_id": "cd6ed4fb-f2b3-4b1e-9f2e-6a6bd128ce2f"
+}
+
+Ran `prove` 
+Completed with input: {
+  "code": "\n;; ===================================================================\n;; THEOREM: The fixed puzzle has a UNIQUE solution\n;; ===================================================================\n(defthm puzzle-v2-unique-solution\n  (implies (puzzle-v2 aP aI aT aE tP tI tT tE)\n           (and (equal aP 2)   ; Pooh = bouncing\n                (equal aI 4)   ; Piglet = gardening\n                (equal aT 3)   ; Tigger = exploring\n                (equal aE 1)   ; Eeyore = honey tasting\n                (equal tP 3)   ; Pooh = afternoon\n                (equal tI 1)   ; Piglet = morning\n                (equal tT 2)   ; Tigger = noon\n                (equal tE 4))) ; Eeyore = evening\n  :rule-classes nil)\n",
+  "session_id": "cd6ed4fb-f2b3-4b1e-9f2e-6a6bd128ce2f",
+  "timeout": 60
+}
+
+**Q.E.D.** — ACL2 proves uniqueness of the fixed puzzle! Now let me also prove the solution is satisfiable (existence): 
+
+Ran `prove` 
+Completed with input: {
+  "code": "\n;; ===================================================================\n;; THEOREM: The fixed puzzle IS satisfiable (the solution exists)\n;; ===================================================================\n(defthm puzzle-v2-satisfiable\n  (puzzle-v2 2 4 3 1  ; Pooh=bouncing, Piglet=gardening, Tigger=exploring, Eeyore=honey\n             3 1 2 4) ; Pooh=afternoon, Piglet=morning, Tigger=noon, Eeyore=evening\n  :rule-classes nil)\n",
+  "session_id": "cd6ed4fb-f2b3-4b1e-9f2e-6a6bd128ce2f"
+}
+
+Now let me also verify with SMTLink for the Z3 angle. Let me set it up: 
+
+Ran `evaluate` 
+Completed with input: {
+  "code": "\n;; ===================================================================\n;; SMTLink Setup for Z3 verification\n;; ===================================================================\n(include-book \"projects/smtlink/top\" :dir :system :ttags :all)\n",
+  "session_id": "cd6ed4fb-f2b3-4b1e-9f2e-6a6bd128ce2f",
+  "timeout": 60
+}
+
+Ran `evaluate` 
+Completed with input: {
+  "code": "\n(value-triple (tshell-ensure))\n(add-default-hints '((SMT::SMT-computed-hint clause)))\n",
+  "session_id": "cd6ed4fb-f2b3-4b1e-9f2e-6a6bd128ce2f"
+}
+
+Ran `prove` 
+Completed with input: {
+  "code": "\n;; ===================================================================\n;; THEOREM: SMTLink/Z3 verification of unique solution\n;; ===================================================================\n;; SMTLink sends this to Z3 which verifies via SAT/SMT that\n;; no other assignment satisfies the constraints.\n(defthm puzzle-v2-unique-via-z3\n  (implies (and (integerp aP) (<= 1 aP) (<= aP 4)\n                (integerp aI) (<= 1 aI) (<= aI 4)\n                (integerp aT) (<= 1 aT) (<= aT 4)\n                (integerp aE) (<= 1 aE) (<= aE 4)\n                (integerp tP) (<= 1 tP) (<= tP 4)\n                (integerp tI) (<= 1 tI) (<= tI 4)\n                (integerp tT) (<= 1 tT) (<= tT 4)\n                (integerp tE) (<= 1 tE) (<= tE 4)\n                ;; All-different activities\n                (not (equal aP aI)) (not (equal aP aT)) (not (equal aP aE))\n                (not (equal aI aT)) (not (equal aI aE))\n                (not (equal aT aE))\n                ;; All-different times\n                (not (equal tP tI)) (not (equal tP tT)) (not (equal tP tE))\n                (not (equal tI tT)) (not (equal tI tE))\n                (not (equal tT tE))\n                ;; Clue 1: Piglet = morning\n                (equal tI 1)\n                ;; Clue 2: Tigger < Eeyore\n                (< tT tE)\n                ;; Clue 3: Pooh ≠ gardening, Pooh ≠ honey\n                (not (equal aP 4)) (not (equal aP 1))\n                ;; Clue 4: honey(1) later than exploring(3)\n                ;; Since Tigger=exploring (clue 5), anyone with honey must be after Tigger\n                (implies (equal aP 1) (> tP tT))\n                (implies (equal aI 1) (> tI tT))\n                (implies (equal aE 1) (> tE tT))\n                ;; Clue 5: Tigger = exploring\n                (equal aT 3)\n                ;; Clue 6: Tigger < Pooh < Eeyore\n                (< tT tP) (< tP tE))\n           (and (equal aP 2) (equal aI 4) (equal aT 3) (equal aE 1)\n                (equal tP 3) (equal tI 1) (equal tT 2) (equal tE 4)))\n  :hints ((\"Goal\" :smtlink nil))\n  :rule-classes nil)\n",
+  "session_id": "cd6ed4fb-f2b3-4b1e-9f2e-6a6bd128ce2f",
+  "timeout": 60
+}
+
+Z3 Python module isn't installed in the ACL2 environment. No problem — ACL2 already proved it without Z3. The pure ACL2 proof is actually stronger (no external oracle needed). Let me now write the complete ACL2 book file: 
+
+Completed: *Verify with ACL2 MCP tools* (5/6)
+
+Created [](file:///workspaces/acl2-swf-experiments/experiments/winnie-the-pooh/forest-friends-frenzy.lisp)
+
+Now let me certify the book end-to-end: 
+
+Starting: *Certify the book* (6/6)
+
+Ran `certify_book` 
+Completed with input: {
+  "file_path": "/workspaces/acl2-swf-experiments/experiments/winnie-the-pooh/forest-friends-frenzy",
+  "timeout": 120
+}
+
+The book certifies with all 21 events admitted and 17 theorems proven. Let me clean up the session and finalize. 
+
+Ran `end_session` 
+Completed with input: {
+  "session_id": "cd6ed4fb-f2b3-4b1e-9f2e-6a6bd128ce2f"
+}
+
+Completed: *Certify the book* (6/6)
+
+Here's the complete analysis and results:
+
+---
+
+## Findings
+
+### 🐛 Bug in the Original Puzzle: 27 Solutions, Not 1
+
+The original 4 clues are **under-constrained**. The Python constraint solver found **27 valid solutions**, and ACL2 confirmed this by proving that multiple distinct solutions satisfy the constraints. The walkthrough contains a **logical error** in Step 3:
+
+> *"since Piglet occupies morning, Tigger must do his activity at noon, and Eeyore does his in the afternoon"*
+
+This is **false**. With Piglet at morning, the constraint "Tigger < Eeyore" leaves **three** possible time arrangements for {Tigger, Pooh, Eeyore} over {noon, afternoon, evening} — not one. ACL2 proved this by exhibiting solutions with Tigger at noon/Eeyore at evening, and also Tigger at afternoon/Eeyore at evening.
+
+### ✅ Fixed Puzzle: ACL2-Certified Unique Solution
+
+The fixed puzzle adds two thematic clues and strengthens one:
+
+| # | Clue | Status |
+|---|------|--------|
+| 1 | Piglet performs his activity in the morning | *unchanged* |
+| 2 | Tigger does his activity earlier than Eeyore | *unchanged* |
+| 3 | Pooh does not like gardening **or honey tasting** | **strengthened** |
+| 4 | Honey tasting happens later than exploring | *unchanged* |
+| 5 | **Tigger's favorite activity is exploring** | **new** |
+| 6 | **Pooh does his activity later than Tigger but earlier than Eeyore** | **new** |
+
+### 🏆 ACL2-Proven Theorems (all in forest-friends-frenzy.lisp)
+
+| Theorem | What it proves |
+|---------|---------------|
+| `fixed-puzzle-satisfiable` | The solution **exists** |
+| `fixed-puzzle-unique-solution` | The solution is **unique** — every valid assignment equals the intended grid |
+| `step-1` through `step-6` | Each **deduction step** in the walkthrough is individually provable |
+| `original-has-alternative-solution` | The original puzzle is **buggy** (multiple solutions) |
+| `clue-2-redundant` | Original Clue 2 is subsumed by new Clue 6 |
+
+The book certifies fully with `cert.pl` — **12,118 prover steps, 0.09s prove time, zero failures**.
+
+Regarding SMTLink/Z3: the Z3 Python bindings aren't installed in this container, but pure ACL2 reasoning handles this finite-domain puzzle beautifully via exhaustive case splitting — no external solver needed. SMTLink would be overkill here since the domain is just $4^8$ bounded integers.
+
+Made changes.
